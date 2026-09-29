@@ -172,6 +172,15 @@ stop_sql()
     stop_service 'MSSQL$SQLTOPSOLID'
 }
 
+# the PDM database: none, incomplete (tables without their keys yet) or complete
+pdm_db_state()
+{
+    sql_query -h-1 -Q "set nocount on; if db_id('LocalPdmServer') is null select 'db-none'
+        else if exists (select 1 from LocalPdmServer.sys.tables) and not exists (select 1 from LocalPdmServer.sys.tables t
+            where not exists (select 1 from LocalPdmServer.sys.indexes i where i.object_id = t.object_id and i.is_primary_key = 1))
+        select 'db-complete' else select 'db-incomplete'" | tr -d '\r' | grep -o -m1 'db-[a-z]*'
+}
+
 stop_services()
 {
     find_version && wine_run net stop "$PDM_SERVICE"
@@ -410,18 +419,28 @@ step_pdm()
     find_version || return 1
     reg_import "$SHARE/reg/tweaks.reg"
     say "First start of the local PDM server"
-    wine_run net stop "$PDM_SERVICE"
+    stop_service "$PDM_SERVICE"
+    wine_run net start 'MSSQL$SQLTOPSOLID'
+    # an interrupted first start leaves a database without keys, which the PDM never completes: start over
+    if [ "$(pdm_db_state)" = db-incomplete ]; then
+        log "incomplete PDM database, creating it again"
+        sql_query -Q "alter database LocalPdmServer set single_user with rollback immediate; drop database LocalPdmServer" >> "$LOG"
+        rm -rf "$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid'Local Pdm Server Service"
+    fi
     (cd "$TSBIN" && "$WINE" TopSolid.Pdm.ServerServiceAdmin.exe >> "$LOG" 2>&1 &)
     sleep 15
+    # the service creates its database only when started while the admin runs; it may have started already
+    stop_service "$PDM_SERVICE"
     wine_run net start "$PDM_SERVICE"
-    for i in $(seq 150); do
-        state="$(service_state "$PDM_SERVICE")"
-        [ "$state" = RUNNING ] && break
-        sleep 2
+    # the service reports running before its database is complete; stopping it then leaves the database broken
+    for i in $(seq 100); do
+        state="$(pdm_db_state)"
+        [ "$state" = db-complete ] && break
+        sleep 3
     done
     wine_run taskkill /f /im TopSolid.Pdm.ServerServiceAdmin.exe
-    log "PDM service state: $state"
-    [ "$state" = RUNNING ] || { say "The local PDM server did not start"; return 1; }
+    log "PDM database: $state"
+    [ "$state" = db-complete ] || { say "The local PDM server did not create its database"; return 1; }
 }
 
 step_finish()
@@ -429,6 +448,12 @@ step_finish()
     find_version || return 1
     say "Finishing the installation"
     python3 "$TOOLS/exeicon.py" "$TSBIN/TopSolid.exe" "$DATA/topsolid.png" >> "$LOG" 2>&1 || cp "$ICON" "$DATA/topsolid.svg"
+    # the server side of the local PDM was started for the first time in step_pdm; without this flag TopSolid does
+    # that again on its first connection, stopping and restarting the service, which fails ("Unable to start service")
+    local conf="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/AppData/Roaming/TOPSOLID/TopSolid/$VERSION/TopSolid/Kernel/SX"
+    mkdir -p "$conf"
+    python3 "$TOOLS/userconfig.py" "$conf/Config.ConfigData.xml" TopSolid/Pdm/UI/Connections/ConnectionDialog \
+        HasLocalPdmAlreadyStarted Bool True >> "$LOG" 2>&1 || { say "Setting up TopSolid's PDM connection failed"; return 1; }
     touch "$WINEPREFIX/.topsolinux"
     unlink_desktop
     wine_run reg delete 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /f
