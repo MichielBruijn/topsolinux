@@ -1,7 +1,7 @@
 From 353fd333dd0f69b0c3f39b0e4ec4065eddf1af0f Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:39 +0200
-Subject: [PATCH 07/49] combase: Store the security blanket in the proxy
+Subject: [PATCH 07/48] combase: Store the security blanket in the proxy
  manager.
 
 IClientSecurity::QueryBlanket() and SetBlanket() failed, which made

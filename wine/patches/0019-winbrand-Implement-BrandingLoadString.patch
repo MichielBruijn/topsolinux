@@ -1,7 +1,7 @@
 From 42b17a3448331bc9723fc0889917a473b7ac9cdd Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:42:11 +0200
-Subject: [PATCH 19/49] winbrand: Implement BrandingLoadString().
+Subject: [PATCH 19/48] winbrand: Implement BrandingLoadString().
 
 Load the string from %windir%\Branding\<namespace>\<namespace>.dll like
 Windows does. Used by the WMI Win32_OperatingSystem provider.

@@ -1,7 +1,7 @@
 From 6884be79ef899c2fbf7d790ccf93800c0ad0e647 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:45:25 +0200
-Subject: [PATCH 39/49] msv1_0: Look up the token buffer instead of assuming
+Subject: [PATCH 39/48] msv1_0: Look up the token buffer instead of assuming
  it's the first buffer.
 
 Clients such as the SQL Server ODBC driver and SqlClient pass channel bindings

@@ -1,7 +1,7 @@
 From 92a096f446e0aa82ef32c9f3c53e275a87efcc51 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:45:39 +0200
-Subject: [PATCH 40/49] secur32: Implement ImpersonateSecurityContext() and
+Subject: [PATCH 40/48] secur32: Implement ImpersonateSecurityContext() and
  QuerySecurityContextToken() for NTLM.
 
 Keep the token of the authenticated client in the server context of msv1_0,

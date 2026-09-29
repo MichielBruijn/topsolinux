@@ -1,7 +1,7 @@
 From 2e3dd5e61660a555e26d13527ca11772c295891d Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:27 +0200
-Subject: [PATCH 01/49] msvcrt: Export __CxxFrameHandler4 on x86_64.
+Subject: [PATCH 01/48] msvcrt: Export __CxxFrameHandler4 on x86_64.
 
 Windows 10 and later msvcrt.dll exports __CxxFrameHandler4 on x86_64, and
 binaries built with recent MSVC toolsets link to it (e.g. the WMI

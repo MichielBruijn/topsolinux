@@ -90,7 +90,7 @@ Windows Registry Editor Version 5.00
 "Active"=dword:00000001
 "DisplayName"="Specific IP Address"
 "Enabled"=dword:00000000
-"IpAddress"="fe80::a775:9a47:aa9c:5cbf%4"
+"IpAddress"="fe80::1%1"
 "TcpDynamicPorts"="0"
 "TcpPort"=""
 
@@ -98,7 +98,7 @@ Windows Registry Editor Version 5.00
 "Active"=dword:00000001
 "DisplayName"="Specific IP Address"
 "Enabled"=dword:00000000
-"IpAddress"="192.168.4.9"
+"IpAddress"="192.0.2.1"
 "TcpDynamicPorts"="0"
 "TcpPort"=""
 

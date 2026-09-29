@@ -1,7 +1,7 @@
 From acc9f4a159584a589c39862fac4fdb48c9f6ce9e Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:27 +0200
-Subject: [PATCH 04/49] httpapi: Don't fail HttpInitialize() if the HTTP
+Subject: [PATCH 04/48] httpapi: Don't fail HttpInitialize() if the HTTP
  service is already running.
 
 StartService() can fail with ERROR_SERVICE_DATABASE_LOCKED while services

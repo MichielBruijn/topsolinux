@@ -1,7 +1,7 @@
 From ff07932f191941021a45896122e6fab65ce08b7d Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:43:37 +0200
-Subject: [PATCH 26/49] services: Start the dependencies of a service before
+Subject: [PATCH 26/48] services: Start the dependencies of a service before
  starting it.
 
 Services configured with DependOnService (e.g. an application server that

@@ -1,7 +1,7 @@
 From f4a8ad6e2ded60950c9607109ec29b5e2124c69f Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:42:11 +0200
-Subject: [PATCH 20/49] apisetschema: Add ext-ms-win-branding-winbrand-l1-1-0.
+Subject: [PATCH 20/48] apisetschema: Add ext-ms-win-branding-winbrand-l1-1-0.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV

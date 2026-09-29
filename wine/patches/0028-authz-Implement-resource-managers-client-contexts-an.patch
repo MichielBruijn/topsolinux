@@ -1,7 +1,7 @@
 From a30bbe83a5d4a79410c53cfcc428a637ef704d07 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:03 +0200
-Subject: [PATCH 28/49] authz: Implement resource managers, client contexts and
+Subject: [PATCH 28/48] authz: Implement resource managers, client contexts and
  AuthzAccessCheck().
 
 Also add semi-stubs for the object access audit event functions. Used by

@@ -1,7 +1,7 @@
 From 56b0483e3435d48812a0c062bac95c8a05c413d3 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:43:10 +0200
-Subject: [PATCH 22/49] wmiclnt: New dll.
+Subject: [PATCH 22/48] wmiclnt: New dll.
 
 The WMI service and providers import the Wmi* functions from wmiclnt.dll,
 forward them to advapi32 like on Windows.

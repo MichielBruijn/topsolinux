@@ -1,7 +1,7 @@
 From df7da0a62e49af39979e62e09a01cd1d7ff606fc Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 16:06:24 +0200
-Subject: [PATCH 43/49] lsass: Warn when the memory of a client process can't
+Subject: [PATCH 43/48] lsass: Warn when the memory of a client process can't
  be accessed.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

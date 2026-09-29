@@ -1,7 +1,7 @@
 From 98c4a882fb2bd6eb6dea2150d22243b265e4b175 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:03 +0200
-Subject: [PATCH 30/49] winex11: Use XRender to present client surfaces with a
+Subject: [PATCH 30/48] winex11: Use XRender to present client surfaces with a
  different depth.
 
 Pixel formats with an alpha channel use a 32-bit visual with the NVIDIA

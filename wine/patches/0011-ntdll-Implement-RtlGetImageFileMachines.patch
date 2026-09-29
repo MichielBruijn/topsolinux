@@ -1,7 +1,7 @@
 From 12a6a51d44e6ded0704b77da229b0a9d8e786744 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:41:33 +0200
-Subject: [PATCH 11/49] ntdll: Implement RtlGetImageFileMachines().
+Subject: [PATCH 11/48] ntdll: Implement RtlGetImageFileMachines().
 
 Used by the SQL Server 2019 installer and engine to check the image machine.
 

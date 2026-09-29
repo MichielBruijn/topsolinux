@@ -1,7 +1,7 @@
 From 9cd80afa96d94604e29ad0e84c1c16635ad5830f Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:39 +0200
-Subject: [PATCH 10/49] combase: Provide IServerSecurity for incoming calls.
+Subject: [PATCH 10/48] combase: Provide IServerSecurity for incoming calls.
 
 CoGetCallContext() returned RPC_E_CALL_COMPLETE inside server methods, so
 servers calling CoImpersonateClient() (e.g. WMI providers) failed.

@@ -1,7 +1,7 @@
 From a4bad49f57d735196adde31a3272f05c58089f66 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:41:40 +0200
-Subject: [PATCH 16/49] ntdll: Return an empty group list for
+Subject: [PATCH 16/48] ntdll: Return an empty group list for
  TokenRestrictedSids.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,7 +1,7 @@
 From d2d32f20d015889a02dccd7f9411d6ce4ff5d033 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:27 +0200
-Subject: [PATCH 02/49] rpcrt4: Implement RpcStream_Stat().
+Subject: [PATCH 02/48] rpcrt4: Implement RpcStream_Stat().
 
 Proxies that marshal interfaces into an RPC stream may query its size.
 

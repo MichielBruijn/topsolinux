@@ -1,7 +1,7 @@
 From 4cc1bbf50771190fc37dd81ed644b5db434a4755 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:41:33 +0200
-Subject: [PATCH 14/49] ntdll: Implement RtlNumberOfSetBitsUlongPtr().
+Subject: [PATCH 14/48] ntdll: Implement RtlNumberOfSetBitsUlongPtr().
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV

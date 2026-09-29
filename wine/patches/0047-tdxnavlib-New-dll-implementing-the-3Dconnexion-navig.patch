@@ -1,7 +1,7 @@
 From f2961888bae691738316ec0221e93c37a970a776 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:45:55 +0200
-Subject: [PATCH 47/49] tdxnavlib: New dll implementing the 3Dconnexion
+Subject: [PATCH 47/48] tdxnavlib: New dll implementing the 3Dconnexion
  navigation library on top of spacenavd.
 
 LOCAL, not for upstream: TDxNavLib.dll is part of the 3Dconnexion 3DxWare

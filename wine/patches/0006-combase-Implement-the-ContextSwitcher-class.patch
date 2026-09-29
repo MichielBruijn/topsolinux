@@ -1,7 +1,7 @@
 From 6f9c86592c6efbb7a2ee6c4aac0c957d8d364ce2 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:39 +0200
-Subject: [PATCH 06/49] combase: Implement the ContextSwitcher class.
+Subject: [PATCH 06/48] combase: Implement the ContextSwitcher class.
 
 CLSID_ContextSwitcher objects expose IContextCallback for the current object
 context; the WMI service creates one when handling client calls.

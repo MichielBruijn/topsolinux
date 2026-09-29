@@ -1,7 +1,7 @@
 From 9b9ab26af7f098afc0f9a21877a0047f4bfc495c Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:03 +0200
-Subject: [PATCH 29/49] ntdsapi: Implement DsGetSpnW() and DsFreeSpnArrayW().
+Subject: [PATCH 29/48] ntdsapi: Implement DsGetSpnW() and DsFreeSpnArrayW().
 
 SQL Server calls DsGetSpnW() at startup to register its service principal
 names and aborts when it is missing.

@@ -1,7 +1,7 @@
 From 513e0160d67f61056041802b9511ce0c0078910a Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:52 +0200
-Subject: [PATCH 36/49] crypt32: Acquire CNG private keys referenced by the
+Subject: [PATCH 36/48] crypt32: Acquire CNG private keys referenced by the
  certificate key provider info.
 
 Certificates whose CERT_KEY_PROV_INFO has dwProvType 0 refer to a CNG key

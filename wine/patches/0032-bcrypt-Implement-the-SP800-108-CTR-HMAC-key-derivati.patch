@@ -1,7 +1,7 @@
 From f6d6590b9dea3e3cc50b7a0eac408b27bd9ab514 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:21 +0200
-Subject: [PATCH 32/49] bcrypt: Implement the SP800-108 CTR HMAC key derivation
+Subject: [PATCH 32/48] bcrypt: Implement the SP800-108 CTR HMAC key derivation
  function.
 
 Used by the ASP.NET Core data protection stack.

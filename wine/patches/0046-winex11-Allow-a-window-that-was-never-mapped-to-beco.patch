@@ -1,7 +1,7 @@
 From aaa914cc8661e3a5073acd94a6c99fbdd3213a73 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Tue, 29 Sep 2026 13:49:41 +0200
-Subject: [PATCH 46/49] winex11: Allow a window that was never mapped to become
+Subject: [PATCH 46/48] winex11: Allow a window that was never mapped to become
  unmanaged again.
 
 The X window is created before WM_NCCREATE, with the style the application

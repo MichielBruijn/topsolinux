@@ -1,7 +1,7 @@
 From 670988ed0a31a9ba74c3d7a29e28596dbe9626e3 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 16:06:24 +0200
-Subject: [PATCH 42/49] services: Start drivers before services with the same
+Subject: [PATCH 42/48] services: Start drivers before services with the same
  start type.
 
 Services such as the Sentinel RMS license manager query the network

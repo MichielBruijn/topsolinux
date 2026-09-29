@@ -1,7 +1,7 @@
 From 1b3baa0702cfad977248bf0e35575523edf6c3d6 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:42:20 +0200
-Subject: [PATCH 21/49] svchost: Call SvchostPushServiceGlobals() for services
+Subject: [PATCH 21/48] svchost: Call SvchostPushServiceGlobals() for services
  that export it.
 
 Pass a structure with the well-known SIDs and RPC helper callbacks, like
