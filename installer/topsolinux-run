@@ -7,6 +7,7 @@
 #   license FILE      install a Sentinel RMS license file (lservrc) and restart the license server
 #   license-tool      start the TopSolid license tool
 #   scale PERCENT     size of text and icons, e.g. 150 (kept until changed; 100 = normal)
+#   scale auto        follow the desktop's scale again (the default)
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
 #
@@ -143,10 +144,29 @@ unstick_first_login()
 }
 
 # Windows applications scale text and icons with the DPI, 96 is 100%
+set_dpi() { "$WINE" reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d "$1" /f >/dev/null 2>&1; }
+
 set_scale()
 {
-    case "$1" in ""|*[!0-9]*) msg "scale must be a percentage, e.g. 150"; exit 1 ;; esac
-    "$WINE" reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d $(( $1 * 96 / 100 )) /f >/dev/null 2>&1
+    case "$1" in ""|*[!0-9]*) msg "scale must be a percentage, e.g. 150, or auto"; exit 1 ;; esac
+    set_dpi $(( $1 * 96 / 100 ))
+}
+
+# a scale chosen with the scale command, else the desktop's, unless it was changed in Wine's settings
+apply_scale()
+{
+    local cur last want
+    if [ -n "${TOPSOLID_SCALE:-}" ]; then set_scale "$TOPSOLID_SCALE"; return; fi
+    if [ -f "$DATA/scale" ]; then set_scale "$(cat "$DATA/scale")"; return; fi
+    [ -x "$HERE/usr/lib/topsolinux/desktop-dpi" ] || return
+    cur="$(awk '/^\[Control Panel\\\\Desktop\]/ { s = 1; next } /^\[/ { s = 0 }
+        s && /^"LogPixels"=dword:/ { sub(/.*dword:/, ""); print }' "$WINEPREFIX/user.reg" 2>/dev/null)"
+    [ -n "$cur" ] && cur=$((16#$cur))
+    last="$(cat "$DATA/.auto-dpi" 2>/dev/null)"
+    [ -n "$cur" ] && [ -n "$last" ] && [ "$cur" != "$last" ] && return
+    want="$("$HERE/usr/lib/topsolinux/desktop-dpi")"
+    [ "$want" != "$cur" ] && set_dpi "$want"
+    echo "$want" > "$DATA/.auto-dpi"
 }
 
 stop_services()
@@ -184,19 +204,19 @@ ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:
 install_prefix
 find_version
 setup_gpu
-[ -n "${TOPSOLID_SCALE:-}" ] && set_scale "$TOPSOLID_SCALE"
 
 case "${1:-}" in
-    "")           wait_for_pdm; unstick_first_login; run "$TOPSOLID\\TopSolid.exe" ;;
-    update)       run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
-    license-tool) run "$TOPSOLID\\TopSolid.License.exe" ;;
+    "")           apply_scale; wait_for_pdm; unstick_first_login; run "$TOPSOLID\\TopSolid.exe" ;;
+    update)       apply_scale; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
+    license-tool) apply_scale; run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
         [ -f "${2:-}" ] || { msg "usage: $0 license FILE"; exit 1; }
         cp "$2" "$("$WINE" winepath -u "$LSERVRC" 2>/dev/null)" && msg "license installed"
         stop_services ;;
-    scale)        set_scale "${2:-}"; msg "scale set to $2%, used from the next start of TopSolid"
+    scale)        if [ "${2:-}" = auto ]; then rm -f "$DATA/scale" "$DATA/.auto-dpi"; apply_scale; msg "scale follows the desktop again"
+                  else set_scale "${2:-}"; echo "$2" > "$DATA/scale"; msg "scale set to $2%, used from the next start of TopSolid"; fi
                   topsolid_running || "$WINESERVER" -w ;;
-    winecfg|regedit) run "$1" ;;
+    winecfg|regedit) apply_scale; run "$1" ;;
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;
     stop)         stop_services ;;
