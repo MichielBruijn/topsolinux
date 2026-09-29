@@ -55,8 +55,8 @@ Everything is installed in `~/.local/share/topsolinux` (set `TOPSOLINUX_HOME` to
 
 With the AppImage option you get `TopSolid-7.20-x86_64.AppImage`: a complete, self-contained TopSolid.
 Open it with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) to get a menu entry, or just
-double-click it. On another computer it installs itself on the first start; each user adds their own
-license. Only use it on computers you are licensed for, and **do not publish it**: it contains TopSolid,
+double-click it. To use TopSolid on another computer, copy the AppImage there and start it: the first start
+sets TopSolid up in `~/.local/share/topsolinux` (a few minutes). Each computer needs its own license. Only use it on computers you are licensed for, and **do not publish it**: it contains TopSolid,
 SQL Server Express and Microsoft's runtimes.
 
 Without the AppImage option, the installer adds TopSolid to your application menu directly.
