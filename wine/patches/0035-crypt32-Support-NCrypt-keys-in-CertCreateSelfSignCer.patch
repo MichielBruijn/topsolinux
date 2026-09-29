@@ -1,0 +1,199 @@
+From f43c6aef93276c1dfa2661bfb619604e2051c103 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:52 +0200
+Subject: [PATCH 35/49] crypt32: Support NCrypt keys in
+ CertCreateSelfSignCertificate().
+
+SQL Server generates its fallback TLS certificate from a CNG key handle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/crypt32/cert.c | 157 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 157 insertions(+)
+
+diff --git a/dlls/crypt32/cert.c b/dlls/crypt32/cert.c
+index aaba206..d444f38 100644
+--- a/dlls/crypt32/cert.c
++++ b/dlls/crypt32/cert.c
+@@ -28,6 +28,7 @@
+ #include "wincrypt.h"
+ #include "snmp.h"
+ #include "bcrypt.h"
++#include "ncrypt.h"
+ #include "winnls.h"
+ #include "rpc.h"
+ #include "wine/debug.h"
+@@ -3820,6 +3821,158 @@ static HCRYPTPROV CRYPT_CreateKeyProv(void)
+     return hProv;
+ }
+ 
++
++static BOOL ncrypt_export_public_key_info( NCRYPT_KEY_HANDLE key, CERT_PUBLIC_KEY_INFO **ret )
++{
++    static const BYTE null_params[] = { 0x05, 0x00 };
++    BYTE *blob = NULL, *encoded = NULL;
++    DWORD blob_len = 0, encoded_len = 0;
++    CERT_PUBLIC_KEY_INFO *info;
++    SECURITY_STATUS status;
++    BOOL ret_val = FALSE;
++    char *ptr;
++
++    if ((status = NCryptExportKey( key, 0, LEGACY_RSAPUBLIC_BLOB, NULL, NULL, 0, &blob_len, 0 )))
++    {
++        FIXME( "only RSA keys are supported, status %#lx\n", status );
++        SetLastError( status );
++        return FALSE;
++    }
++    if (!(blob = CryptMemAlloc( blob_len ))) return FALSE;
++    if ((status = NCryptExportKey( key, 0, LEGACY_RSAPUBLIC_BLOB, NULL, blob, blob_len, &blob_len, 0 )))
++    {
++        SetLastError( status );
++        goto done;
++    }
++    if (!CryptEncodeObjectEx( X509_ASN_ENCODING, RSA_CSP_PUBLICKEYBLOB, blob, CRYPT_ENCODE_ALLOC_FLAG, NULL,
++                              &encoded, &encoded_len )) goto done;
++
++    if (!(info = CryptMemAlloc( sizeof(*info) + sizeof(szOID_RSA_RSA) + sizeof(null_params) + encoded_len )))
++        goto done;
++    ptr = (char *)(info + 1);
++    info->Algorithm.pszObjId = strcpy( ptr, szOID_RSA_RSA );
++    ptr += sizeof(szOID_RSA_RSA);
++    info->Algorithm.Parameters.cbData = sizeof(null_params);
++    info->Algorithm.Parameters.pbData = memcpy( ptr, null_params, sizeof(null_params) );
++    ptr += sizeof(null_params);
++    info->PublicKey.cbData = encoded_len;
++    info->PublicKey.pbData = memcpy( ptr, encoded, encoded_len );
++    info->PublicKey.cUnusedBits = 0;
++    *ret = info;
++    ret_val = TRUE;
++
++done:
++    LocalFree( encoded );
++    CryptMemFree( blob );
++    return ret_val;
++}
++
++static const WCHAR *hash_alg_from_algid( ALG_ID algid )
++{
++    switch (algid)
++    {
++    case CALG_MD5:     return BCRYPT_MD5_ALGORITHM;
++    case CALG_SHA1:    return BCRYPT_SHA1_ALGORITHM;
++    case CALG_SHA_256: return BCRYPT_SHA256_ALGORITHM;
++    case CALG_SHA_384: return BCRYPT_SHA384_ALGORITHM;
++    case CALG_SHA_512: return BCRYPT_SHA512_ALGORITHM;
++    default:           return NULL;
++    }
++}
++
++static PCCERT_CONTEXT ncrypt_create_signed_cert( const CRYPT_DER_BLOB *blob, NCRYPT_KEY_HANDLE key,
++                                                 PCRYPT_ALGORITHM_IDENTIFIER sig_algo )
++{
++    BCRYPT_PKCS1_PADDING_INFO padding;
++    BCRYPT_ALG_HANDLE alg = NULL;
++    PCCERT_CONTEXT context = NULL;
++    PCCRYPT_OID_INFO oid_info;
++    BYTE hash[64], *sig = NULL, *encoded = NULL;
++    DWORD hash_len = 0, sig_len = 0, encoded_len = 0, i, size;
++    CERT_SIGNED_CONTENT_INFO signed_info;
++    const WCHAR *hash_name;
++
++    oid_info = CryptFindOIDInfo( CRYPT_OID_INFO_OID_KEY, sig_algo->pszObjId, CRYPT_SIGN_ALG_OID_GROUP_ID );
++    if (!oid_info || !(hash_name = hash_alg_from_algid( oid_info->Algid )))
++    {
++        FIXME( "unsupported signature algorithm %s\n", debugstr_a(sig_algo->pszObjId) );
++        SetLastError( NTE_BAD_ALGID );
++        return NULL;
++    }
++
++    if (BCryptOpenAlgorithmProvider( &alg, hash_name, NULL, 0 )) return NULL;
++    if (BCryptGetProperty( alg, BCRYPT_HASH_LENGTH, (BYTE *)&hash_len, sizeof(hash_len), &size, 0 ) ||
++        hash_len > sizeof(hash) || BCryptHash( alg, NULL, 0, blob->pbData, blob->cbData, hash, hash_len ))
++    {
++        BCryptCloseAlgorithmProvider( alg, 0 );
++        return NULL;
++    }
++    BCryptCloseAlgorithmProvider( alg, 0 );
++
++    padding.pszAlgId = hash_name;
++    if (NCryptSignHash( key, &padding, hash, hash_len, NULL, 0, &sig_len, BCRYPT_PAD_PKCS1 )) return NULL;
++    if (!(sig = CryptMemAlloc( sig_len ))) return NULL;
++    if (NCryptSignHash( key, &padding, hash, hash_len, sig, sig_len, &sig_len, BCRYPT_PAD_PKCS1 )) goto done;
++
++    /* the X509_CERT encoder expects the signature in CryptoAPI (little-endian) byte order */
++    for (i = 0; i < sig_len / 2; i++)
++    {
++        BYTE tmp = sig[i];
++        sig[i] = sig[sig_len - i - 1];
++        sig[sig_len - i - 1] = tmp;
++    }
++
++    signed_info.ToBeSigned = *blob;
++    signed_info.SignatureAlgorithm = *sig_algo;
++    signed_info.Signature.cbData = sig_len;
++    signed_info.Signature.pbData = sig;
++    signed_info.Signature.cUnusedBits = 0;
++    if (CryptEncodeObjectEx( X509_ASN_ENCODING, X509_CERT, &signed_info, CRYPT_ENCODE_ALLOC_FLAG, NULL,
++                             &encoded, &encoded_len ))
++    {
++        context = CertCreateCertificateContext( X509_ASN_ENCODING, encoded, encoded_len );
++        LocalFree( encoded );
++    }
++
++done:
++    CryptMemFree( sig );
++    return context;
++}
++
++static PCCERT_CONTEXT ncrypt_create_self_sign_cert( NCRYPT_KEY_HANDLE key, PCERT_NAME_BLOB subject, DWORD flags,
++                                                    PCRYPT_KEY_PROV_INFO prov_info,
++                                                    PCRYPT_ALGORITHM_IDENTIFIER sig_algo, PSYSTEMTIME start,
++                                                    PSYSTEMTIME end, PCERT_EXTENSIONS extensions )
++{
++    CERT_PUBLIC_KEY_INFO *pub_key;
++    PCCERT_CONTEXT context = NULL;
++    CERT_INFO info = { 0 };
++    CRYPT_DER_BLOB blob = { 0, NULL };
++    BYTE serial[16];
++    CRYPT_DATA_BLOB serial_blob = { sizeof(serial), serial };
++
++    if (!ncrypt_export_public_key_info( key, &pub_key )) return NULL;
++
++    BCryptGenRandom( NULL, serial, sizeof(serial), BCRYPT_USE_SYSTEM_PREFERRED_RNG );
++    CRYPT_MakeCertInfo( &info, &serial_blob, subject, sig_algo, start, end, pub_key, extensions );
++    if (CryptEncodeObjectEx( X509_ASN_ENCODING, X509_CERT_TO_BE_SIGNED, &info, CRYPT_ENCODE_ALLOC_FLAG, NULL,
++                             &blob.pbData, &blob.cbData ))
++    {
++        if (!(flags & CERT_CREATE_SELFSIGN_NO_SIGN))
++            context = ncrypt_create_signed_cert( &blob, key, &info.SignatureAlgorithm );
++        else
++            context = CertCreateCertificateContext( X509_ASN_ENCODING, blob.pbData, blob.cbData );
++        if (context && !(flags & CERT_CREATE_SELFSIGN_NO_KEY_INFO))
++        {
++            if (prov_info) CertSetCertificateContextProperty( context, CERT_KEY_PROV_INFO_PROP_ID, 0, prov_info );
++            else FIXME( "key info for NCrypt keys not set\n" );
++        }
++        LocalFree( blob.pbData );
++    }
++    CryptMemFree( pub_key );
++    return context;
++}
++
+ PCCERT_CONTEXT WINAPI CertCreateSelfSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hProv,
+  PCERT_NAME_BLOB pSubjectIssuerBlob, DWORD dwFlags,
+  PCRYPT_KEY_PROV_INFO pKeyProvInfo,
+@@ -3841,6 +3994,10 @@ PCCERT_CONTEXT WINAPI CertCreateSelfSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HAN
+         return NULL;
+     }
+ 
++    if (hProv && NCryptIsKeyHandle(hProv))
++        return ncrypt_create_self_sign_cert(hProv, pSubjectIssuerBlob, dwFlags, pKeyProvInfo,
++                                            pSignatureAlgorithm, pStartTime, pEndTime, pExtensions);
++
+     dwKeySpec = pKeyProvInfo ? pKeyProvInfo->dwKeySpec : AT_SIGNATURE;
+     if (!hProv)
+     {
+-- 
+2.43.0
+

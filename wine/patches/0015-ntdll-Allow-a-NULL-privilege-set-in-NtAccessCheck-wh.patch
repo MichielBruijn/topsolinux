@@ -1,0 +1,60 @@
+From 0bfeef825c25c951fef1fc4b5ccfcafa4ec5eb6c Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:41:40 +0200
+Subject: [PATCH 15/49] ntdll: Allow a NULL privilege set in NtAccessCheck()
+ when querying the size.
+
+AccessCheck() is called with a NULL PrivilegeSet and a zero length to query
+the required size, as done by the WMI service.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/advapi32/tests/security.c | 2 --
+ dlls/ntdll/unix/security.c     | 7 +++++--
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/advapi32/tests/security.c b/dlls/advapi32/tests/security.c
+index 571842b..c7576e2 100644
+--- a/dlls/advapi32/tests/security.c
++++ b/dlls/advapi32/tests/security.c
+@@ -1423,10 +1423,8 @@ static void test_AccessCheck(void)
+     ret = AccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
+                       0, &PrivSetLen, &Access, &AccessStatus);
+     err = GetLastError();
+-    todo_wine
+     ok(!ret && err == ERROR_INSUFFICIENT_BUFFER, "AccessCheck should have "
+        "failed with ERROR_INSUFFICIENT_BUFFER, instead of %ld\n", err);
+-    todo_wine
+     ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %ld\n", PrivSetLen);
+     ok(Access == 0x1abe11ed && AccessStatus == 0x1abe11ed,
+        "Access and/or AccessStatus were changed!\n");
+diff --git a/dlls/ntdll/unix/security.c b/dlls/ntdll/unix/security.c
+index 1e1b4f8..63af874 100644
+--- a/dlls/ntdll/unix/security.c
++++ b/dlls/ntdll/unix/security.c
+@@ -908,8 +908,10 @@ NTSTATUS WINAPI NtAccessCheck( PSECURITY_DESCRIPTOR descr, HANDLE token, ACCESS_
+     TRACE( "(%p, %p, %08x, %p, %p, %p, %p, %p)\n",
+            descr, token, access, mapping, privs, retlen, access_granted, access_status );
+ 
+-    if (!privs || !retlen) return STATUS_ACCESS_VIOLATION;
++    if (!retlen) return STATUS_ACCESS_VIOLATION;
+     priv_len = *retlen;
++    /* a NULL buffer is only allowed as a size query */
++    if (!privs && priv_len) return STATUS_ACCESS_VIOLATION;
+ 
+     /* reuse the object attribute SD marshalling */
+     InitializeObjectAttributes( &attr, NULL, 0, 0, descr );
+@@ -924,7 +926,8 @@ NTSTATUS WINAPI NtAccessCheck( PSECURITY_DESCRIPTOR descr, HANDLE token, ACCESS_
+         req->mapping.exec = mapping->GenericExecute;
+         req->mapping.all = mapping->GenericAll;
+         wine_server_add_data( req, objattr + 1, objattr->sd_len );
+-        wine_server_set_reply( req, privs->Privilege, priv_len - offsetof( PRIVILEGE_SET, Privilege ) );
++        if (priv_len > offsetof( PRIVILEGE_SET, Privilege ))
++            wine_server_set_reply( req, privs->Privilege, priv_len - offsetof( PRIVILEGE_SET, Privilege ) );
+ 
+         status = wine_server_call( req );
+ 
+-- 
+2.43.0
+

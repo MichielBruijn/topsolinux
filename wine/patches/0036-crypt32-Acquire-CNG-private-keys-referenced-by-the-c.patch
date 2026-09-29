@@ -1,0 +1,80 @@
+From 513e0160d67f61056041802b9511ce0c0078910a Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:52 +0200
+Subject: [PATCH 36/49] crypt32: Acquire CNG private keys referenced by the
+ certificate key provider info.
+
+Certificates whose CERT_KEY_PROV_INFO has dwProvType 0 refer to a CNG key
+storage provider; open the key with NCryptOpenKey() and return it with
+CERT_NCRYPT_KEY_SPEC.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/crypt32/cert.c | 37 ++++++++++++++++++++++++++++++++++++-
+ include/ncrypt.h    |  1 +
+ 2 files changed, 37 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/crypt32/cert.c b/dlls/crypt32/cert.c
+index d444f38..e4280d3 100644
+--- a/dlls/crypt32/cert.c
++++ b/dlls/crypt32/cert.c
+@@ -980,7 +980,42 @@ static BOOL CRYPT_AcquirePrivateKeyFromProvInfo(PCCERT_CONTEXT pCert, DWORD dwFl
+         else
+             SetLastError(CRYPT_E_NO_KEY_PROPERTY);
+     }
+-    if (ret)
++    if (ret && !info->dwProvType)
++    {
++        /* CNG key storage provider */
++        NCRYPT_PROV_HANDLE provider;
++        NCRYPT_KEY_HANDLE key;
++        SECURITY_STATUS status;
++
++        if (!(dwFlags & (CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG |
++                         CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG)))
++        {
++            SetLastError(NTE_BAD_PROV_TYPE);
++            ret = FALSE;
++        }
++        else if ((status = NCryptOpenStorageProvider(&provider, info->pwszProvName, 0)))
++        {
++            SetLastError(status);
++            ret = FALSE;
++        }
++        else
++        {
++            status = NCryptOpenKey(provider, &key, info->pwszContainerName, info->dwKeySpec,
++                                   info->dwFlags & CRYPT_MACHINE_KEYSET ? NCRYPT_MACHINE_KEY_FLAG : 0);
++            NCryptFreeObject(provider);
++            if (status)
++            {
++                SetLastError(status);
++                ret = FALSE;
++            }
++            else
++            {
++                *phCryptProv = key;
++                *pdwKeySpec = CERT_NCRYPT_KEY_SPEC;
++            }
++        }
++    }
++    else if (ret)
+     {
+         ret = CryptAcquireContextW(phCryptProv, info->pwszContainerName, info->pwszProvName, info->dwProvType, flags);
+         if (!ret)
+diff --git a/include/ncrypt.h b/include/ncrypt.h
+index bd0a7c6..d49afd2 100644
+--- a/include/ncrypt.h
++++ b/include/ncrypt.h
+@@ -85,6 +85,7 @@ typedef ULONG_PTR NCRYPT_SECRET_HANDLE;
+ #define NCRYPT_KEY_PROTECTION_INTERFACE     0x00010004
+ 
+ #define NCRYPT_SILENT_FLAG 0x00000040
++#define NCRYPT_MACHINE_KEY_FLAG 0x00000020
+ #define NCRYPT_OVERWRITE_KEY_FLAG 0x00000080
+ 
+ #define NCRYPT_NO_PADDING_FLAG 0x00000001
+-- 
+2.43.0
+

@@ -1,0 +1,177 @@
+From 12a6a51d44e6ded0704b77da229b0a9d8e786744 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:41:33 +0200
+Subject: [PATCH 11/49] ntdll: Implement RtlGetImageFileMachines().
+
+Used by the SQL Server 2019 installer and engine to check the image machine.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ntdll/ntdll.spec  |  1 +
+ dlls/ntdll/process.c   | 51 ++++++++++++++++++++++++++++++++++++++
+ dlls/ntdll/tests/rtl.c | 56 ++++++++++++++++++++++++++++++++++++++++++
+ include/winternl.h     |  1 +
+ 4 files changed, 109 insertions(+)
+
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index 03dd02e..ae50211 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -761,6 +761,7 @@
+ @ stdcall RtlGetFrame()
+ @ stdcall RtlGetFullPathName_U(wstr long ptr ptr)
+ @ stdcall RtlGetFullPathName_UEx(wstr long ptr ptr ptr)
++@ stdcall RtlGetImageFileMachines(wstr ptr)
+ @ stdcall RtlGetGroupSecurityDescriptor(ptr ptr ptr)
+ @ stdcall RtlGetLastNtStatus()
+ @ stdcall RtlGetLastWin32Error()
+diff --git a/dlls/ntdll/process.c b/dlls/ntdll/process.c
+index 5074a72..964c1e0 100644
+--- a/dlls/ntdll/process.c
++++ b/dlls/ntdll/process.c
+@@ -125,6 +125,57 @@ NTSTATUS WINAPI RtlWow64GetProcessMachines( HANDLE process, USHORT *current_ret,
+ }
+ 
+ 
++/**********************************************************************
++ *           RtlGetImageFileMachines  (NTDLL.@)
++ */
++NTSTATUS WINAPI RtlGetImageFileMachines( const WCHAR *filename, USHORT *machines )
++{
++    IMAGE_DOS_HEADER dos;
++    struct
++    {
++        DWORD signature;
++        IMAGE_FILE_HEADER file;
++    } nt;
++    UNICODE_STRING nt_name;
++    OBJECT_ATTRIBUTES attr;
++    IO_STATUS_BLOCK io;
++    LARGE_INTEGER offset;
++    NTSTATUS status;
++    HANDLE file;
++
++    if ((status = RtlDosPathNameToNtPathName_U_WithStatus( filename, &nt_name, NULL, NULL ))) return status;
++    InitializeObjectAttributes( &attr, &nt_name, OBJ_CASE_INSENSITIVE, 0, NULL );
++    status = NtOpenFile( &file, GENERIC_READ | SYNCHRONIZE, &attr, &io, FILE_SHARE_READ | FILE_SHARE_DELETE,
++                         FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE );
++    RtlFreeUnicodeString( &nt_name );
++    if (status) return status;
++
++    offset.QuadPart = 0;
++    status = NtReadFile( file, 0, NULL, NULL, &io, &dos, sizeof(dos), &offset, NULL );
++    if (!status && (io.Information != sizeof(dos) || dos.e_magic != IMAGE_DOS_SIGNATURE))
++        status = STATUS_INVALID_IMAGE_NOT_MZ;
++    if (!status)
++    {
++        offset.QuadPart = dos.e_lfanew;
++        status = NtReadFile( file, 0, NULL, NULL, &io, &nt, sizeof(nt), &offset, NULL );
++        if (!status && (io.Information != sizeof(nt) || nt.signature != IMAGE_NT_SIGNATURE))
++            status = STATUS_INVALID_IMAGE_FORMAT;
++    }
++    NtClose( file );
++    if (status) return status;
++
++    switch (nt.file.Machine)
++    {
++    case IMAGE_FILE_MACHINE_I386:  *machines = 0x1; break;
++    case IMAGE_FILE_MACHINE_AMD64: *machines = 0x2; break;
++    case IMAGE_FILE_MACHINE_ARMNT: *machines = 0x4; break;
++    case IMAGE_FILE_MACHINE_ARM64: *machines = 0x8; break;
++    default: return STATUS_INVALID_IMAGE_FORMAT;
++    }
++    return STATUS_SUCCESS;
++}
++
++
+ /**********************************************************************
+  *           RtlWow64GetSharedInfoProcess  (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/tests/rtl.c b/dlls/ntdll/tests/rtl.c
+index c9f5303..35daabb 100644
+--- a/dlls/ntdll/tests/rtl.c
++++ b/dlls/ntdll/tests/rtl.c
+@@ -5562,6 +5562,61 @@ static void test_pointer_encoding(void)
+     ok( v == expected, "got %p, expected %p.\n", v, expected );
+ }
+ 
++static void test_RtlGetImageFileMachines(void)
++{
++    NTSTATUS (WINAPI *pRtlGetImageFileMachines)(const WCHAR *, USHORT *);
++    WCHAR path[MAX_PATH];
++    USHORT machines, expect;
++    NTSTATUS status;
++    HANDLE file;
++    DWORD size;
++
++    pRtlGetImageFileMachines = (void *)GetProcAddress( hntdll, "RtlGetImageFileMachines" );
++    if (!pRtlGetImageFileMachines)
++    {
++        win_skip( "RtlGetImageFileMachines is not available\n" );
++        return;
++    }
++
++#if defined(__i386__)
++    expect = 0x1;
++#elif defined(__x86_64__)
++    expect = 0x2;
++#elif defined(__arm__)
++    expect = 0x4;
++#else
++    expect = 0x8;
++#endif
++
++    GetModuleFileNameW( NULL, path, ARRAY_SIZE(path) );
++    machines = 0xdead;
++    status = pRtlGetImageFileMachines( path, &machines );
++    ok( !status, "got %#lx\n", status );
++    ok( machines == expect, "got %#x, expected %#x\n", machines, expect );
++
++    wcscpy( path, L"\\??\\" );
++    GetModuleFileNameW( NULL, path + 4, ARRAY_SIZE(path) - 4 );
++    machines = 0xdead;
++    status = pRtlGetImageFileMachines( path, &machines );
++    ok( !status, "got %#lx\n", status );
++    ok( machines == expect, "got %#x, expected %#x\n", machines, expect );
++
++    status = pRtlGetImageFileMachines( L"%SystemRoot%\\system32\\kernel32.dll", &machines );
++    ok( status == STATUS_OBJECT_PATH_NOT_FOUND, "got %#lx\n", status );
++
++    GetTempPathW( ARRAY_SIZE(path), path );
++    wcscat( path, L"machines.txt" );
++    file = CreateFileW( path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
++    ok( file != INVALID_HANDLE_VALUE, "failed to create %s, error %lu\n", debugstr_w(path), GetLastError() );
++    WriteFile( file, "not an image", 12, &size, NULL );
++    CloseHandle( file );
++    status = pRtlGetImageFileMachines( path, &machines );
++    ok( status == STATUS_INVALID_IMAGE_NOT_MZ, "got %#lx\n", status );
++    DeleteFileW( path );
++    status = pRtlGetImageFileMachines( path, &machines );
++    ok( status == STATUS_OBJECT_NAME_NOT_FOUND, "got %#lx\n", status );
++}
++
+ START_TEST(rtl)
+ {
+     InitFunctionPtrs();
+@@ -5634,4 +5689,5 @@ START_TEST(rtl)
+     test_RtlCreateServiceSid();
+     test_RtlDeriveCapabilitySidsFromName();
+     test_pointer_encoding();
++    test_RtlGetImageFileMachines();
+ }
+diff --git a/include/winternl.h b/include/winternl.h
+index a430779..8b84658 100644
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -5229,6 +5229,7 @@ NTSYSAPI ULONG64   WINAPI RtlGetExtendedFeaturesMask(CONTEXT_EX*);
+ NTSYSAPI TEB_ACTIVE_FRAME * WINAPI RtlGetFrame(void);
+ NTSYSAPI ULONG     WINAPI RtlGetFullPathName_U(PCWSTR,ULONG,PWSTR,PWSTR*);
+ NTSYSAPI ULONG     WINAPI RtlGetFullPathName_UEx(PCWSTR,ULONG,PWSTR,PWSTR*,RTL_PATH_TYPE*);
++NTSYSAPI NTSTATUS  WINAPI RtlGetImageFileMachines(const WCHAR*,USHORT*);
+ NTSYSAPI NTSTATUS  WINAPI RtlGetGroupSecurityDescriptor(PSECURITY_DESCRIPTOR,PSID *,PBOOLEAN);
+ NTSYSAPI NTSTATUS  WINAPI RtlGetLastNtStatus(void);
+ NTSYSAPI DWORD     WINAPI RtlGetLastWin32Error(void);
+-- 
+2.43.0
+

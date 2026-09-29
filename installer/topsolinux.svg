@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2d6cdf"/>
+      <stop offset="1" stop-color="#173a7a"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#bg)"/>
+  <!-- a cube, the classic CAD part -->
+  <g stroke="#ffffff" stroke-width="10" stroke-linejoin="round" fill="none">
+    <path d="M128 52 L200 92 L200 168 L128 208 L56 168 L56 92 Z"/>
+    <path d="M56 92 L128 132 L200 92 M128 132 L128 208"/>
+  </g>
+  <path d="M128 52 L200 92 L128 132 L56 92 Z" fill="#ffffff" fill-opacity="0.25"/>
+  <!-- install arrow -->
+  <circle cx="196" cy="196" r="38" fill="#f5a623" stroke="#ffffff" stroke-width="6"/>
+  <path d="M196 174 L196 212 M180 198 L196 214 L212 198" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

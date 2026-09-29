@@ -1,0 +1,106 @@
+From 2e3dd5e61660a555e26d13527ca11772c295891d Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:27 +0200
+Subject: [PATCH 01/49] msvcrt: Export __CxxFrameHandler4 on x86_64.
+
+Windows 10 and later msvcrt.dll exports __CxxFrameHandler4 on x86_64, and
+binaries built with recent MSVC toolsets link to it (e.g. the WMI
+providers in wbem).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/msvcrt/except.c    | 4 ++++
+ dlls/msvcrt/handler4.c  | 2 +-
+ dlls/msvcrt/main.c      | 6 +++---
+ dlls/msvcrt/msvcrt.h    | 2 +-
+ dlls/msvcrt/msvcrt.spec | 1 +
+ 5 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/msvcrt/except.c b/dlls/msvcrt/except.c
+index 8be9ab7..500614d 100644
+--- a/dlls/msvcrt/except.c
++++ b/dlls/msvcrt/except.c
+@@ -1051,6 +1051,10 @@ void CDECL __std_exception_destroy(struct __std_exception_data *data)
+     data->dofree = 0;
+ }
+ 
++#endif /* _MSVCR_VER>=140 */
++
++#if _MSVCR_VER>=140 || (defined(__x86_64__) && _MSVCR_VER==0)
++
+ /*********************************************************************
+  *  __current_exception (UCRTBASE.@)
+  */
+diff --git a/dlls/msvcrt/handler4.c b/dlls/msvcrt/handler4.c
+index 06bd02d..6a5c3ad 100644
+--- a/dlls/msvcrt/handler4.c
++++ b/dlls/msvcrt/handler4.c
+@@ -20,7 +20,7 @@
+ 
+ #include <corecrt.h>
+ 
+-#if defined(__x86_64__) && _MSVCR_VER>=140
++#if defined(__x86_64__) && (_MSVCR_VER>=140 || _MSVCR_VER==0)
+ 
+ #include <stdarg.h>
+ #include <stdlib.h>
+diff --git a/dlls/msvcrt/main.c b/dlls/msvcrt/main.c
+index 39c20b2..da20eac 100644
+--- a/dlls/msvcrt/main.c
++++ b/dlls/msvcrt/main.c
+@@ -111,7 +111,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
+         msvcrt_destroy_heap();
+         return FALSE;
+     }
+-#if defined(__x86_64__) && _MSVCR_VER>=140
++#if defined(__x86_64__) && (_MSVCR_VER>=140 || _MSVCR_VER==0)
+     if(!msvcrt_init_handler4()) {
+         msvcrt_free_locks();
+         msvcrt_free_tls_mem();
+@@ -137,7 +137,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
+     TRACE("finished process init\n");
+     break;
+   case DLL_THREAD_ATTACH:
+-#if defined(__x86_64__) && _MSVCR_VER>=140
++#if defined(__x86_64__) && (_MSVCR_VER>=140 || _MSVCR_VER==0)
+     msvcrt_attach_handler4();
+ #endif
+     break;
+@@ -153,7 +153,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
+     msvcrt_free_tls_mem();
+     if (!msvcrt_free_tls())
+       return FALSE;
+-#if defined(__x86_64__) && _MSVCR_VER>=140
++#if defined(__x86_64__) && (_MSVCR_VER>=140 || _MSVCR_VER==0)
+     msvcrt_free_handler4();
+ #endif
+     _free_locale(MSVCRT_locale);
+diff --git a/dlls/msvcrt/msvcrt.h b/dlls/msvcrt/msvcrt.h
+index 47cf70f..38cfda4 100644
+--- a/dlls/msvcrt/msvcrt.h
++++ b/dlls/msvcrt/msvcrt.h
+@@ -152,7 +152,7 @@ void CDECL __DestructExceptionObject(EXCEPTION_RECORD*);
+ void** __cdecl __current_exception(void);
+ int* __cdecl __processing_throw(void);
+ 
+-#if defined(__x86_64__) && _MSVCR_VER>=140
++#if defined(__x86_64__) && (_MSVCR_VER>=140 || _MSVCR_VER==0)
+ BOOL msvcrt_init_handler4(void);
+ void msvcrt_attach_handler4(void);
+ void msvcrt_free_handler4(void);
+diff --git a/dlls/msvcrt/msvcrt.spec b/dlls/msvcrt/msvcrt.spec
+index 088ab0d..2a89444 100644
+--- a/dlls/msvcrt/msvcrt.spec
++++ b/dlls/msvcrt/msvcrt.spec
+@@ -184,6 +184,7 @@
+ @ cdecl -norelay __CxxFrameHandler(ptr ptr ptr ptr)
+ @ cdecl -norelay __CxxFrameHandler2(ptr ptr ptr ptr) __CxxFrameHandler
+ @ cdecl -norelay __CxxFrameHandler3(ptr ptr ptr ptr) __CxxFrameHandler
++@ cdecl -arch=x86_64 __CxxFrameHandler4(ptr long ptr ptr)
+ @ stdcall -arch=i386 __CxxLongjmpUnwind(ptr)
+ @ cdecl __CxxQueryExceptionSize()
+ @ cdecl __CxxRegisterExceptionObject(ptr ptr)
+-- 
+2.43.0
+

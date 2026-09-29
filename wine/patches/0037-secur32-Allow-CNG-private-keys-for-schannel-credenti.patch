@@ -1,0 +1,36 @@
+From 0280fd6fc269ffb98b72b5c4660103c3fa651ffe Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:45:02 +0200
+Subject: [PATCH 37/49] secur32: Allow CNG private keys for schannel
+ credentials.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/secur32/schannel.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/secur32/schannel.c b/dlls/secur32/schannel.c
+index 1e149d7..b566516 100644
+--- a/dlls/secur32/schannel.c
++++ b/dlls/secur32/schannel.c
+@@ -427,9 +427,14 @@ static SECURITY_STATUS get_cert(const void *credentials, CERT_CONTEXT const **ce
+         HCRYPTPROV prov;
+         BOOL free;
+ 
+-        if (CryptAcquireCertificatePrivateKey(cert_list[0], CRYPT_ACQUIRE_CACHE_FLAG, NULL, &prov, &spec, &free))
++        if (CryptAcquireCertificatePrivateKey(cert_list[0], CRYPT_ACQUIRE_CACHE_FLAG | CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG,
++                                              NULL, &prov, &spec, &free))
+         {
+-            if (free) CryptReleaseContext(prov, 0);
++            if (free)
++            {
++                if (spec == CERT_NCRYPT_KEY_SPEC) NCryptFreeObject(prov);
++                else CryptReleaseContext(prov, 0);
++            }
+             *cert = cert_list[0];
+             status = SEC_E_OK;
+         }
+-- 
+2.43.0
+

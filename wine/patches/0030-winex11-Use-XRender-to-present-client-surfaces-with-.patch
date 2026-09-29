@@ -1,0 +1,204 @@
+From 98c4a882fb2bd6eb6dea2150d22243b265e4b175 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:03 +0200
+Subject: [PATCH 30/49] winex11: Use XRender to present client surfaces with a
+ different depth.
+
+Pixel formats with an alpha channel use a 32-bit visual with the NVIDIA
+driver, while the toplevel window uses the 24-bit default visual. XCopyArea()
+requires matching depths and fails with BadMatch; composite with XRender
+instead, which converts between the formats.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/winex11.drv/init.c    | 54 ++++++++++++++++++++++++++++++++++++++
+ dlls/winex11.drv/x11drv.h  |  4 +++
+ dlls/winex11.drv/xrender.c | 51 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 109 insertions(+)
+
+diff --git a/dlls/winex11.drv/init.c b/dlls/winex11.drv/init.c
+index cf032cb..db04944 100644
+--- a/dlls/winex11.drv/init.c
++++ b/dlls/winex11.drv/init.c
+@@ -378,6 +378,53 @@ static void x11drv_client_surface_update( struct client_surface *client )
+     client_surface_update_offscreen( hwnd, surface );
+ }
+ 
++/* XCopyArea requires matching depths, use XRender when the client window visual differs */
++static BOOL client_surface_present_xrender( struct x11drv_client_surface *surface, HWND toplevel, Window window,
++                                            const RECT *rect_src, const RECT *rect_dst, HRGN region )
++{
++    int width = rect_dst->right - rect_dst->left, height = rect_dst->bottom - rect_dst->top;
++    struct x11drv_win_data *data;
++    XVisualInfo dst_visual;
++    RGNDATA *rgn_data = NULL;
++    RECT *rects = NULL;
++    UINT i, count = 0;
++    BOOL ret;
++
++    if (!(data = get_win_data( toplevel ))) return FALSE;
++    dst_visual = data->vis;
++    release_win_data( data );
++
++    if (dst_visual.depth == surface->visual.depth) return FALSE;
++    if (width != rect_src->right - rect_src->left || height != rect_src->bottom - rect_src->top) return FALSE;
++
++    if (region)
++    {
++        DWORD size = NtGdiGetRegionData( region, 0, NULL );
++        if (!size || !(rgn_data = malloc( size ))) return FALSE;
++        if (!NtGdiGetRegionData( region, size, rgn_data ))
++        {
++            free( rgn_data );
++            return FALSE;
++        }
++        rects = (RECT *)rgn_data->Buffer;
++        count = rgn_data->rdh.nCount;
++        for (i = 0; i < count; i++) OffsetRect( &rects[i], rect_dst->left, rect_dst->top );
++        if (!count)
++        {
++            free( rgn_data );
++            return TRUE; /* nothing visible */
++        }
++    }
++
++    TRACE( "copying %lx depth %u to %lx depth %u with xrender\n", surface->window, surface->visual.depth,
++           window, dst_visual.depth );
++    ret = xrender_copy_drawable( surface->window, surface->visual.visual, 0, 0, window, dst_visual.visual,
++                                 rect_dst->left, rect_dst->top, width, height, rects, count );
++    if (ret) XFlush( gdi_display );
++    free( rgn_data );
++    return ret;
++}
++
+ static void X11DRV_client_surface_present( struct client_surface *client, HDC hdc )
+ {
+     struct x11drv_client_surface *surface = impl_from_client_surface( client );
+@@ -397,6 +444,12 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
+     TRACE( "hwnd %p %s to toplevel %p %s region %p\n", hwnd, wine_dbgstr_rect(&rect_src),
+            toplevel, wine_dbgstr_rect(&rect_dst), region );
+ 
++    if (client_surface_present_xrender( surface, toplevel, window, &rect_src, &rect_dst, region ))
++    {
++        if (region) NtGdiDeleteObjectApp( region );
++        return;
++    }
++
+     if (get_dc_drawable( surface->hdc_dst, &rect ) != window || !EqualRect( &rect, &rect_dst ))
+         set_dc_drawable( surface->hdc_dst, window, &rect_dst, IncludeInferiors );
+     if (region) NtGdiExtSelectClipRgn( surface->hdc_dst, region, RGN_COPY );
+@@ -443,6 +496,7 @@ struct client_surface *X11DRV_CreateClientSurface( HWND hwnd, int format, BOOL r
+ 
+     if (!(surface = client_surface_create( &x11drv_client_surface_funcs, hwnd, format, raw ))) goto failed;
+     surface->colormap = colormap;
++    surface->visual = visual;
+     rect = raw ? surface->client.monitor_rect : surface->client.virtual_rect;
+     if (!(surface->window = create_client_window( hwnd, rect, &visual, colormap ))) goto failed;
+ 
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 22462df..94e975a 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -371,6 +371,7 @@ struct x11drv_client_surface
+     XWindowChanges changes;
+     Colormap colormap;
+     Window window;
++    XVisualInfo visual;
+ 
+     HDC hdc_src;
+     HDC hdc_dst;
+@@ -493,6 +494,9 @@ extern int primary_monitor;
+ extern int copy_default_colors;
+ extern int alloc_system_colors;
+ extern int xrender_error_base;
++extern BOOL xrender_copy_drawable( Drawable src, Visual *src_visual, int src_x, int src_y,
++                                   Drawable dst, Visual *dst_visual, int dst_x, int dst_y,
++                                   int width, int height, const RECT *clip, UINT clip_count );
+ extern char *process_name;
+ extern Display *clipboard_display;
+ 
+diff --git a/dlls/winex11.drv/xrender.c b/dlls/winex11.drv/xrender.c
+index dd3f596..13b2b64 100644
+--- a/dlls/winex11.drv/xrender.c
++++ b/dlls/winex11.drv/xrender.c
+@@ -318,6 +318,8 @@ static int load_xrender_formats(void)
+  * Let's see if our XServer has the extension available
+  *
+  */
++static BOOL xrender_available;
++
+ const struct gdi_dc_funcs *X11DRV_XRender_Init(void)
+ {
+     int event_base, i;
+@@ -377,6 +379,7 @@ const struct gdi_dc_funcs *X11DRV_XRender_Init(void)
+     }
+     glyphsetCache[i-1].next = -1;
+ 
++    xrender_available = TRUE;
+     return &xrender_funcs;
+ }
+ 
+@@ -2256,6 +2259,47 @@ static const struct gdi_dc_funcs xrender_funcs =
+     GDI_PRIORITY_GRAPHICS_DRV + 10      /* priority */
+ };
+ 
++/***********************************************************************
++ *           xrender_copy_drawable
++ *
++ * Copy between drawables that may have different visuals and depths,
++ * which XCopyArea doesn't support.
++ */
++BOOL xrender_copy_drawable( Drawable src, Visual *src_visual, int src_x, int src_y,
++                            Drawable dst, Visual *dst_visual, int dst_x, int dst_y,
++                            int width, int height, const RECT *clip, UINT clip_count )
++{
++    XRenderPictFormat *src_format, *dst_format;
++    XRenderPictureAttributes pa;
++    Picture src_pict, dst_pict;
++    XRectangle *rects = NULL;
++    UINT i;
++
++    if (!xrender_available) return FALSE;
++    if (!(src_format = pXRenderFindVisualFormat( gdi_display, src_visual ))) return FALSE;
++    if (!(dst_format = pXRenderFindVisualFormat( gdi_display, dst_visual ))) return FALSE;
++
++    if (clip_count && !(rects = malloc( clip_count * sizeof(*rects) ))) return FALSE;
++    for (i = 0; i < clip_count; i++)
++    {
++        rects[i].x = clip[i].left;
++        rects[i].y = clip[i].top;
++        rects[i].width = clip[i].right - clip[i].left;
++        rects[i].height = clip[i].bottom - clip[i].top;
++    }
++
++    pa.subwindow_mode = IncludeInferiors;
++    src_pict = pXRenderCreatePicture( gdi_display, src, src_format, CPSubwindowMode, &pa );
++    dst_pict = pXRenderCreatePicture( gdi_display, dst, dst_format, CPSubwindowMode, &pa );
++    if (rects) pXRenderSetPictureClipRectangles( gdi_display, dst_pict, 0, 0, rects, clip_count );
++    pXRenderComposite( gdi_display, PictOpSrc, src_pict, 0, dst_pict, src_x, src_y, 0, 0,
++                       dst_x, dst_y, width, height );
++    pXRenderFreePicture( gdi_display, src_pict );
++    pXRenderFreePicture( gdi_display, dst_pict );
++    free( rects );
++    return TRUE;
++}
++
+ #else /* SONAME_LIBXRENDER */
+ 
+ const struct gdi_dc_funcs *X11DRV_XRender_Init(void)
+@@ -2264,4 +2308,11 @@ const struct gdi_dc_funcs *X11DRV_XRender_Init(void)
+     return NULL;
+ }
+ 
++BOOL xrender_copy_drawable( Drawable src, Visual *src_visual, int src_x, int src_y,
++                            Drawable dst, Visual *dst_visual, int dst_x, int dst_y,
++                            int width, int height, const RECT *clip, UINT clip_count )
++{
++    return FALSE;
++}
++
+ #endif /* SONAME_LIBXRENDER */
+-- 
+2.43.0
+

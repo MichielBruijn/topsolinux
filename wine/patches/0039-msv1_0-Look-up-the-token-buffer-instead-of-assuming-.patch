@@ -1,0 +1,276 @@
+From 6884be79ef899c2fbf7d790ccf93800c0ad0e647 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:45:25 +0200
+Subject: [PATCH 39/49] msv1_0: Look up the token buffer instead of assuming
+ it's the first buffer.
+
+Clients such as the SQL Server ODBC driver and SqlClient pass channel bindings
+(SECBUFFER_CHANNEL_BINDINGS) in the input buffer list, also on the first call
+of InitializeSecurityContext(), and the token is not necessarily the first
+buffer passed to AcceptSecurityContext().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/msv1_0/main.c        | 47 +++++++++++++++-------------
+ dlls/secur32/tests/ntlm.c | 66 +++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 92 insertions(+), 21 deletions(-)
+
+diff --git a/dlls/msv1_0/main.c b/dlls/msv1_0/main.c
+index 076cf92..a238809 100644
+--- a/dlls/msv1_0/main.c
++++ b/dlls/msv1_0/main.c
+@@ -1254,6 +1254,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+     struct ntlm_ctx *ctx = NULL;
+     char *buf, *bin, *want_flags = NULL, *username = NULL, *domain = NULL, *password = NULL;
+     unsigned int len, bin_len;
++    BOOL first;
+     int idx;
+ 
+     TRACE( "%#Ix, %#Ix, %s, %#lx, %lu, %p, %p, %p, %p, %p, %p, %p\n", cred_handle, ctx_handle, debugstr_us(target),
+@@ -1269,10 +1270,13 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+      *
+      * The squid cache size is 2010 chars and that's what ntlm_auth uses */
+ 
++    /* the first call may pass channel bindings without a token */
++    first = !ctx_handle && (!input || get_buffer_index( input, SECBUFFER_TOKEN ) == -1);
++
+     if (!(buf = malloc( NTLM_MAX_BUF * 3 + 64 ))) return SEC_E_INSUFFICIENT_MEMORY;
+     if (!(bin = malloc( NTLM_MAX_BUF ))) goto done;
+ 
+-    if (!ctx_handle && !input)
++    if (first)
+     {
+         char *argv[5];
+         int password_len = 0;
+@@ -1430,7 +1434,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+         *new_ctx_handle = (LSA_SEC_HANDLE)ctx;
+         status = SEC_I_CONTINUE_NEEDED;
+     }
+-    else /* !ctx_handle && !input */
++    else /* !first */
+     {
+         struct ntlm_challenge *challenge;
+ 
+@@ -1547,7 +1551,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+ 
+     if (!output || ((idx = get_buffer_index( output, SECBUFFER_TOKEN )) == -1))
+     {
+-        if (!ctx_handle && !input) *new_ctx_handle = 0;
++        if (first) *new_ctx_handle = 0;
+         status = SEC_E_BUFFER_TOO_SMALL;
+         goto done;
+     }
+@@ -1564,7 +1568,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+     }
+     else if (output->pBuffers[idx].cbBuffer < bin_len)
+     {
+-        if (!ctx_handle && !input) *new_ctx_handle = 0;
++        if (first) *new_ctx_handle = 0;
+         status = SEC_E_BUFFER_TOO_SMALL;
+         goto done;
+     }
+@@ -1580,7 +1584,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+ 
+     if (!output->pBuffers[idx].pvBuffer)
+     {
+-        if (!ctx_handle && !input) *new_ctx_handle = 0;
++        if (first) *new_ctx_handle = 0;
+         status = SEC_E_INTERNAL_ERROR;
+         goto done;
+     }
+@@ -1594,7 +1598,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+ 
+         if (!data)
+         {
+-            if (!ctx_handle && !input) *new_ctx_handle = 0;
++            if (first) *new_ctx_handle = 0;
+             status = SEC_E_INSUFFICIENT_MEMORY;
+             goto done;
+         }
+@@ -1612,7 +1616,7 @@ done:
+         ntlm_pool_release_ctx( ctx->ntlm_auth_ctx );
+         ctx->ntlm_auth_ctx = NULL;
+     }
+-    if (status != SEC_E_OK && status != SEC_I_CONTINUE_NEEDED && !ctx_handle && !input)
++    if (status != SEC_E_OK && status != SEC_I_CONTINUE_NEEDED && first)
+     {
+         CloseHandle( ctx->token );
+         free( ctx );
+@@ -1638,6 +1642,7 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+     struct ntlm_ctx *ctx = NULL;
+     char *buf, *bin, *want_flags = NULL;
+     unsigned int len, bin_len;
++    int idx;
+ 
+     TRACE( "%#Ix, %#Ix, %#lx, %lu, %p, %p, %p, %p, %p, %p, %p\n", cred_handle, ctx_handle, ctx_req, data_rep, input,
+            new_ctx_handle, output, ctx_attr, expiry, mapped_ctx, ctx_data );
+@@ -1658,27 +1663,27 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+             goto done;
+         }
+ 
+-        if (!input || input->cBuffers < 1)
++        if (!input || (idx = get_buffer_index( input, SECBUFFER_TOKEN )) == -1)
+         {
+             status = SEC_E_INCOMPLETE_MESSAGE;
+             goto done;
+         }
+ 
+-        if (input->pBuffers[0].cbBuffer > NTLM_MAX_BUF)
++        if (input->pBuffers[idx].cbBuffer > NTLM_MAX_BUF)
+         {
+             status = SEC_E_INVALID_TOKEN;
+             goto done;
+         }
+-        else bin_len = input->pBuffers[0].cbBuffer;
++        else bin_len = input->pBuffers[idx].cbBuffer;
+ 
+         if (bin_len < offsetof(struct ntlm_negotiate, target_name_len))
+         {
+             status = SEC_E_INVALID_TOKEN;
+             goto done;
+         }
+-        status = lsa_secpkg_table->MapBuffer( input->pBuffers, input->pBuffers );
++        status = lsa_secpkg_table->MapBuffer( input->pBuffers + idx, input->pBuffers + idx );
+         if (status) goto done;
+-        negotiate = input->pBuffers[0].pvBuffer;
++        negotiate = input->pBuffers[idx].pvBuffer;
+ 
+         if (!(ctx = calloc( 1, sizeof(*ctx) ))) goto done;
+ 
+@@ -1726,7 +1731,7 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+ 
+         do
+         {
+-            memcpy( bin, input->pBuffers[0].pvBuffer, bin_len );
++            memcpy( bin, input->pBuffers[idx].pvBuffer, bin_len );
+             strcpy( buf, "YR " );
+             encode_base64( bin, bin_len, buf + 3 );
+ 
+@@ -1750,7 +1755,7 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+                 {
+                     memcpy( ctx->server_challenge, challenge->challenge, sizeof(ctx->server_challenge) );
+                     hmac_md5_init( &ctx->mic, ctx->session_key, sizeof(ctx->session_key) );
+-                    hmac_md5_update( &ctx->mic, (const char *)negotiate, input->pBuffers[0].cbBuffer );
++                    hmac_md5_update( &ctx->mic, (const char *)negotiate, input->pBuffers[idx].cbBuffer );
+                     hmac_md5_update( &ctx->mic, bin, bin_len );
+                     break;
+                 }
+@@ -1777,7 +1782,7 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+     {
+         struct ntlm_authenticate *authenticate;
+ 
+-        if (!input || input->cBuffers < 1)
++        if (!input || (idx = get_buffer_index( input, SECBUFFER_TOKEN )) == -1)
+         {
+             status = SEC_E_INCOMPLETE_MESSAGE;
+             goto done;
+@@ -1790,17 +1795,17 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+             goto done;
+         }
+ 
+-        if (input->pBuffers[0].cbBuffer > NTLM_MAX_BUF ||
+-                input->pBuffers[0].cbBuffer < offsetof(struct ntlm_authenticate, version))
++        if (input->pBuffers[idx].cbBuffer > NTLM_MAX_BUF ||
++                input->pBuffers[idx].cbBuffer < offsetof(struct ntlm_authenticate, version))
+         {
+             status = SEC_E_INVALID_TOKEN;
+             goto done;
+         }
+-        else bin_len = input->pBuffers[0].cbBuffer;
+-        status = lsa_secpkg_table->MapBuffer( input->pBuffers, input->pBuffers );
++        else bin_len = input->pBuffers[idx].cbBuffer;
++        status = lsa_secpkg_table->MapBuffer( input->pBuffers + idx, input->pBuffers + idx );
+         if (status) goto done;
+-        memcpy( bin, input->pBuffers[0].pvBuffer, bin_len );
+-        authenticate = input->pBuffers[0].pvBuffer;
++        memcpy( bin, input->pBuffers[idx].pvBuffer, bin_len );
++        authenticate = input->pBuffers[idx].pvBuffer;
+ 
+         *ctx_attr = 0;
+         if (authenticate->negotiate_flags & NTLMSSP_NEGOTIATE_SEAL)
+diff --git a/dlls/secur32/tests/ntlm.c b/dlls/secur32/tests/ntlm.c
+index 3646e20..bb5e468 100644
+--- a/dlls/secur32/tests/ntlm.c
++++ b/dlls/secur32/tests/ntlm.c
+@@ -1669,6 +1669,71 @@ static void test_lowercase_package_name(void)
+     if (status == SEC_E_OK) FreeCredentialsHandle(&cred);
+ }
+ 
++static void test_server_context(void)
++{
++    SecBuffer client_in[2], client_out, server_in[2], server_out;
++    SecBufferDesc client_in_desc = { SECBUFFER_VERSION, 2, client_in };
++    SecBufferDesc client_out_desc = { SECBUFFER_VERSION, 1, &client_out };
++    SecBufferDesc server_in_desc = { SECBUFFER_VERSION, 2, server_in };
++    SecBufferDesc server_out_desc = { SECBUFFER_VERSION, 1, &server_out };
++    BYTE client_buf[4096], server_buf[4096];
++    SEC_CHANNEL_BINDINGS bindings = { 0 };
++    CredHandle client_cred, server_cred;
++    CtxtHandle client_ctx, server_ctx;
++    SECURITY_STATUS status;
++    TimeStamp expiry;
++    ULONG attrs;
++
++    status = AcquireCredentialsHandleW( NULL, (WCHAR *)L"NTLM", SECPKG_CRED_OUTBOUND, NULL, NULL, NULL, NULL,
++                                        &client_cred, &expiry );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++    status = AcquireCredentialsHandleW( NULL, (WCHAR *)L"NTLM", SECPKG_CRED_INBOUND, NULL, NULL, NULL, NULL,
++                                        &server_cred, &expiry );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++
++    /* channel bindings may be passed without a token on the first call */
++    client_in[0].BufferType = SECBUFFER_CHANNEL_BINDINGS;
++    client_in[0].cbBuffer = sizeof(bindings);
++    client_in[0].pvBuffer = &bindings;
++    client_in_desc.cBuffers = 1;
++    client_out.BufferType = SECBUFFER_TOKEN;
++    client_out.cbBuffer = sizeof(client_buf);
++    client_out.pvBuffer = client_buf;
++    status = InitializeSecurityContextW( &client_cred, NULL, (WCHAR *)L"localhost", 0, 0, SECURITY_NATIVE_DREP,
++                                         &client_in_desc, 0, &client_ctx, &client_out_desc, &attrs, &expiry );
++    ok( status == SEC_I_CONTINUE_NEEDED, "got %#lx\n", status );
++
++    /* the token doesn't need to be the first buffer */
++    server_in[0].BufferType = SECBUFFER_CHANNEL_BINDINGS;
++    server_in[0].cbBuffer = sizeof(bindings);
++    server_in[0].pvBuffer = &bindings;
++    server_in[1] = client_out;
++    server_out.BufferType = SECBUFFER_TOKEN;
++    server_out.cbBuffer = sizeof(server_buf);
++    server_out.pvBuffer = server_buf;
++    status = AcceptSecurityContext( &server_cred, NULL, &server_in_desc, 0, SECURITY_NATIVE_DREP,
++                                    &server_ctx, &server_out_desc, &attrs, &expiry );
++    ok( status == SEC_I_CONTINUE_NEEDED, "got %#lx\n", status );
++
++    client_in[1] = server_out;
++    client_in_desc.cBuffers = 2;
++    client_out.cbBuffer = sizeof(client_buf);
++    status = InitializeSecurityContextW( &client_cred, &client_ctx, (WCHAR *)L"localhost", 0, 0, SECURITY_NATIVE_DREP,
++                                         &client_in_desc, 0, &client_ctx, &client_out_desc, &attrs, &expiry );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++
++    server_in[1] = client_out;
++    server_out.cbBuffer = sizeof(server_buf);
++    status = AcceptSecurityContext( &server_cred, &server_ctx, &server_in_desc, 0, SECURITY_NATIVE_DREP,
++                                    &server_ctx, &server_out_desc, &attrs, &expiry );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++
++    DeleteSecurityContext( &server_ctx );
++    DeleteSecurityContext( &client_ctx );
++    FreeCredentialsHandle( &server_cred );
++    FreeCredentialsHandle( &client_cred );
++}
++
+ START_TEST(ntlm)
+ {
+     testAcquireCredentialsHandleW();
+@@ -1684,4 +1749,5 @@ START_TEST(ntlm)
+     test_cred_multiple_use();
+     test_null_auth_data();
+     test_lowercase_package_name();
++    test_server_context();
+ }
+-- 
+2.43.0
+

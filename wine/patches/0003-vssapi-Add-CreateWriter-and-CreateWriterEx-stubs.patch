@@ -1,0 +1,63 @@
+From 8eac674ccd2a63e5afdccb06a73ce12e2659f412 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:27 +0200
+Subject: [PATCH 03/49] vssapi: Add CreateWriter() and CreateWriterEx() stubs.
+
+Needed by the SQL Server VSS writer (sqlwriter.exe) to start.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/vssapi/main.c      | 20 ++++++++++++++++++++
+ dlls/vssapi/vssapi.spec |  4 ++--
+ 2 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/vssapi/main.c b/dlls/vssapi/main.c
+index c6abead..0dc37ea 100644
+--- a/dlls/vssapi/main.c
++++ b/dlls/vssapi/main.c
+@@ -93,6 +93,26 @@ HRESULT WINAPI CreateVssBackupComponentsInternal(IVssBackupComponents **backup)
+     return E_NOTIMPL;
+ }
+ 
++/******************************************************************
++ *  CreateWriter (VSSAPI.@)
++ */
++HRESULT WINAPI CreateWriter(void **writer)
++{
++    FIXME("%p\n", writer);
++    if (writer) *writer = NULL;
++    return E_NOTIMPL;
++}
++
++/******************************************************************
++ *  CreateWriterEx (VSSAPI.@)
++ */
++HRESULT WINAPI CreateWriterEx(void **writer)
++{
++    FIXME("%p\n", writer);
++    if (writer) *writer = NULL;
++    return E_NOTIMPL;
++}
++
+ /******************************************************************
+  *  ?CreateVssBackupComponents@@YGJPAPAVIVssBackupComponents@@@Z
+  */
+diff --git a/dlls/vssapi/vssapi.spec b/dlls/vssapi/vssapi.spec
+index c394c29..854241d 100644
+--- a/dlls/vssapi/vssapi.spec
++++ b/dlls/vssapi/vssapi.spec
+@@ -205,8 +205,8 @@
+ @ stdcall CreateVssBackupComponentsInternal(ptr)
+ @ stub CreateVssExamineWriterMetadataInternal
+ @ stub CreateVssExpressWriterInternal
+-@ stub CreateWriter
+-@ stub CreateWriterEx
++@ stdcall CreateWriter(ptr)
++@ stdcall CreateWriterEx(ptr)
+ @ stdcall -private DllCanUnloadNow()
+ @ stub DllGetClassObject
+ @ stub GetProviderMgmtInterface
+-- 
+2.43.0
+

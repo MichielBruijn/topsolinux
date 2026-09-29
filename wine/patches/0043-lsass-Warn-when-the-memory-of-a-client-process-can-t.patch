@@ -1,0 +1,35 @@
+From df7da0a62e49af39979e62e09a01cd1d7ff606fc Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 16:06:24 +0200
+Subject: [PATCH 43/49] lsass: Warn when the memory of a client process can't
+ be accessed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ programs/lsass/lsass.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/programs/lsass/lsass.c b/programs/lsass/lsass.c
+index 1e9e84d..7a31984 100644
+--- a/programs/lsass/lsass.c
++++ b/programs/lsass/lsass.c
+@@ -258,9 +258,14 @@ static NTSTATUS NTAPI lsa_CopyFromClientBuffer( PLSA_CLIENT_REQUEST req, ULONG s
+     cid.UniqueProcess = ULongToHandle(call_info->ProcessId);
+     cid.UniqueThread  = 0;
+     status = NtOpenProcess(&process, PROCESS_VM_READ, NULL, &cid);
+-    if (status) return status;
++    if (status)
++    {
++        WARN("failed to open client process %04lx: %#lx\n", call_info->ProcessId, status);
++        return status;
++    }
+ 
+     status = NtReadVirtualMemory(process, client, buf, size, NULL);
++    if (status) WARN("failed to read client memory %p: %#lx\n", client, status);
+     CloseHandle(process);
+     return status;
+ }
+-- 
+2.43.0
+

@@ -1,0 +1,32 @@
+From 717b6d1f52d3f4fec1ff049b02ea2f829a58760e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:45:02 +0200
+Subject: [PATCH 38/49] include: Marshal all buffers of a SecBufferDesc in the
+ lsass interface.
+
+Only the first buffer was transferred to lsass, so security contexts
+initialized with more than one input buffer (e.g. channel bindings and a
+token, as used by SQL Server clients) got garbage for the others.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ include/wine/lsass.idl | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/wine/lsass.idl b/include/wine/lsass.idl
+index c69d81c..ab9fa6c 100644
+--- a/include/wine/lsass.idl
++++ b/include/wine/lsass.idl
+@@ -62,7 +62,7 @@ interface lsass
+     {
+         ULONG ulVersion;
+         ULONG cBuffers;
+-        SecBuffer *pBuffers;
++        [size_is(cBuffers)] SecBuffer *pBuffers;
+     } SecBufferDesc;
+     cpp_quote("#endif")
+ 
+-- 
+2.43.0
+

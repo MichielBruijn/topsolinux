@@ -1,0 +1,345 @@
+From 92a096f446e0aa82ef32c9f3c53e275a87efcc51 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:45:39 +0200
+Subject: [PATCH 40/49] secur32: Implement ImpersonateSecurityContext() and
+ QuerySecurityContextToken() for NTLM.
+
+Keep the token of the authenticated client in the server context of msv1_0,
+pass it to the calling process through the user mode context data and expose
+it through SpGetContextToken(); Negotiate forwards to the selected package.
+SQL Server impersonates clients logging in with integrated security.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/msv1_0/main.c        | 53 ++++++++++++++++++++++++++++++++--
+ dlls/secur32/lsa.c        | 61 ++++++++++++++++++++++++++++++++++-----
+ dlls/secur32/negotiate.c  | 13 ++++++++-
+ dlls/secur32/tests/ntlm.c | 33 +++++++++++++++++++--
+ 4 files changed, 147 insertions(+), 13 deletions(-)
+
+diff --git a/dlls/msv1_0/main.c b/dlls/msv1_0/main.c
+index a238809..58a65ee 100644
+--- a/dlls/msv1_0/main.c
++++ b/dlls/msv1_0/main.c
+@@ -171,6 +171,7 @@ static CRITICAL_SECTION local_auth_cs = { &local_auth_debug, -1, 0, 0, 0, 0 };
+ 
+ struct user_context_data
+ {
++    ULONG64 token; /* context token handle in the client process */
+     enum mode mode;
+     unsigned int flags;
+     char session_key[16];
+@@ -183,6 +184,7 @@ struct user_ctx
+ 
+     enum mode mode;
+     unsigned int flags;
++    HANDLE token;
+     struct
+     {
+         unsigned int seq_no;
+@@ -1605,6 +1607,7 @@ static NTSTATUS NTAPI ntlm_SpInitLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA
+         data->mode = ctx->mode;
+         data->flags = ctx->flags;
+         memcpy( data->session_key, ctx->session_key, sizeof(data->session_key) );
++        data->token = 0;
+ 
+         *mapped_ctx = TRUE;
+         ctx_data->cbBuffer = sizeof( *data );
+@@ -1632,6 +1635,25 @@ done:
+     return status;
+ }
+ 
++static HANDLE dup_token_to_client( HANDLE token )
++{
++    SECPKG_CALL_INFO info;
++    HANDLE process, ret = NULL;
++
++    if (!token || !lsa_secpkg_table->GetCallInfo( &info )) return NULL;
++    if (info.Attributes & SECPKG_CALL_IN_PROC || info.ProcessId == GetCurrentProcessId())
++        process = GetCurrentProcess();
++    else if (!(process = OpenProcess( PROCESS_DUP_HANDLE, FALSE, info.ProcessId )))
++    {
++        WARN( "failed to open client process %lu\n", info.ProcessId );
++        return NULL;
++    }
++    if (!DuplicateHandle( GetCurrentProcess(), token, process, &ret, 0, FALSE, DUPLICATE_SAME_ACCESS ))
++        ret = NULL;
++    if (process != GetCurrentProcess()) CloseHandle( process );
++    return ret;
++}
++
+ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, LSA_SEC_HANDLE ctx_handle,
+                                                    SecBufferDesc *input, ULONG ctx_req, ULONG data_rep,
+                                                    LSA_SEC_HANDLE *new_ctx_handle, SecBufferDesc *output,
+@@ -1830,8 +1852,8 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
+                 memset( ctx->session_key, 0, sizeof(ctx->session_key) );
+                 goto done;
+             }
+-            /* FIXME: Use the token in QuerySecurityContextToken */
+-            CloseHandle( token );
++            CloseHandle( ctx->token );
++            ctx->token = token;
+ 
+             memcpy( mic_client, authenticate->mic, sizeof(authenticate->mic) );
+             memset( authenticate->mic, 0, sizeof(authenticate->mic) );
+@@ -1931,6 +1953,7 @@ done:
+             data->mode = ctx->mode;
+             data->flags = ctx->flags;
+             memcpy( data->session_key, ctx->session_key, sizeof(data->session_key) );
++            data->token = (ULONG_PTR)dup_token_to_client( ctx->token );
+ 
+             *mapped_ctx = TRUE;
+             ctx_data->cbBuffer = sizeof( *data );
+@@ -2304,10 +2327,12 @@ static NTSTATUS NTAPI ntlm_SpInitUserModeContext( LSA_SEC_HANDLE handle, SecBuff
+         }
+         list_add_head( &user_ctx_list, &ctx->entry );
+     }
++    else if (ctx->token) CloseHandle( ctx->token );
+ 
+     ctx->handle = handle;
+     ctx->mode = data->mode;
+     ctx->flags = data->flags;
++    ctx->token = (HANDLE)(ULONG_PTR)data->token;
+ 
+     arc4_init( &ctx->ntlm.arc4info, data->session_key, 16 );
+     ctx->ntlm.seq_no = 0;
+@@ -2610,12 +2635,34 @@ static NTSTATUS NTAPI ntlm_SpDeleteUserModeContext( LSA_SEC_HANDLE handle )
+     if (user_ctx)
+     {
+         list_remove( &user_ctx->entry );
++        if (user_ctx->token) CloseHandle( user_ctx->token );
+         free( user_ctx );
+     }
+     LeaveCriticalSection( &user_ctx_cs );
+     return STATUS_SUCCESS;
+ }
+ 
++static NTSTATUS NTAPI ntlm_SpGetContextToken( LSA_SEC_HANDLE handle, HANDLE *token )
++{
++    struct user_ctx *user_ctx;
++    NTSTATUS status = SEC_E_INVALID_HANDLE;
++
++    TRACE( "%Ix, %p\n", handle, token );
++
++    EnterCriticalSection( &user_ctx_cs );
++    if ((user_ctx = find_user_ctx( handle )))
++    {
++        if (user_ctx->token)
++        {
++            *token = user_ctx->token;
++            status = SEC_E_OK;
++        }
++        else status = SEC_E_NO_IMPERSONATION;
++    }
++    LeaveCriticalSection( &user_ctx_cs );
++    return status;
++}
++
+ static SECPKG_USER_FUNCTION_TABLE ntlm_user_table =
+ {
+     ntlm_SpInstanceInit,
+@@ -2624,7 +2671,7 @@ static SECPKG_USER_FUNCTION_TABLE ntlm_user_table =
+     ntlm_SpVerifySignature,
+     ntlm_SpSealMessage,
+     ntlm_SpUnsealMessage,
+-    NULL, /* SpGetContextToken */
++    ntlm_SpGetContextToken,
+     NULL, /* SpQueryContextAttributes */
+     NULL, /* SpCompleteAuthToken */
+     ntlm_SpDeleteUserModeContext,
+diff --git a/dlls/secur32/lsa.c b/dlls/secur32/lsa.c
+index 034ec65..d81cf6d 100644
+--- a/dlls/secur32/lsa.c
++++ b/dlls/secur32/lsa.c
+@@ -876,12 +876,39 @@ static SECURITY_STATUS WINAPI lsa_VerifySignature(CtxtHandle *context, SecBuffer
+             message, message_seq_no, quality_of_protection);
+ }
+ 
++static SECURITY_STATUS get_context_token(CtxtHandle *context, HANDLE *token)
++{
++    struct lsa_handle *lsa_ctx;
++
++    if (!context) return SEC_E_INVALID_HANDLE;
++    lsa_ctx = (struct lsa_handle *)context->dwLower;
++    if (!lsa_ctx || lsa_ctx->magic != LSA_MAGIC_CONTEXT) return SEC_E_INVALID_HANDLE;
++
++    if (!lsa_ctx->package->user_api || !lsa_ctx->package->user_api->GetContextToken)
++        return SEC_E_UNSUPPORTED_FUNCTION;
++
++    return lsa_ctx->package->user_api->GetContextToken(LSA_USER_HANDLE(lsa_ctx->handle), token);
++}
++
+ static SECURITY_STATUS WINAPI lsa_QuerySecurityContextToken(CtxtHandle *context, HANDLE *token)
+ {
+-    HANDLE primary;
++    SECURITY_STATUS status;
++    HANDLE ctx_token, primary;
+     BOOL r;
+ 
+-    FIXME("%p %p): stub\n", context, token);
++    TRACE("%p %p\n", context, token);
++
++    status = get_context_token(context, &ctx_token);
++    if (status == SEC_E_OK)
++    {
++        if (!DuplicateHandle(GetCurrentProcess(), ctx_token, GetCurrentProcess(), token, 0, FALSE,
++                             DUPLICATE_SAME_ACCESS))
++            return SEC_E_INTERNAL_ERROR;
++        return SEC_E_OK;
++    }
++    if (status == SEC_E_INVALID_HANDLE) return status;
++
++    FIXME("%p %p: no context token, returning process token\n", context, token);
+ 
+     if (!OpenProcessToken(GetCurrentProcess(), MAXIMUM_ALLOWED, &primary))
+         return GetLastError();
+@@ -890,6 +917,26 @@ static SECURITY_STATUS WINAPI lsa_QuerySecurityContextToken(CtxtHandle *context,
+     return r ? SEC_E_OK : GetLastError();
+ }
+ 
++static SECURITY_STATUS WINAPI lsa_ImpersonateSecurityContext(CtxtHandle *context)
++{
++    SECURITY_STATUS status;
++    HANDLE token;
++
++    TRACE("%p\n", context);
++
++    if ((status = lsa_QuerySecurityContextToken(context, &token))) return status;
++    status = SetThreadToken(NULL, token) ? SEC_E_OK : SEC_E_NO_IMPERSONATION;
++    CloseHandle(token);
++    return status;
++}
++
++static SECURITY_STATUS WINAPI lsa_RevertSecurityContext(CtxtHandle *context)
++{
++    TRACE("%p\n", context);
++
++    return RevertToSelf() ? SEC_E_OK : SEC_E_INTERNAL_ERROR;
++}
++
+ static SECURITY_STATUS WINAPI lsa_EncryptMessage(CtxtHandle *context, ULONG quality_of_protection,
+     SecBufferDesc *message, ULONG message_seq_no)
+ {
+@@ -940,8 +987,8 @@ static const SecurityFunctionTableW lsa_sspi_tableW =
+     lsa_DeleteSecurityContext,
+     NULL, /* ApplyControlToken */
+     lsa_QueryContextAttributesW,
+-    NULL, /* ImpersonateSecurityContext */
+-    NULL, /* RevertSecurityContext */
++    lsa_ImpersonateSecurityContext,
++    lsa_RevertSecurityContext,
+     lsa_MakeSignature,
+     lsa_VerifySignature,
+     NULL, /* FreeContextBuffer */
+@@ -972,8 +1019,8 @@ static const SecurityFunctionTableA lsa_sspi_tableA =
+     lsa_DeleteSecurityContext,
+     NULL, /* ApplyControlToken */
+     lsa_QueryContextAttributesA,
+-    NULL, /* ImpersonateSecurityContext */
+-    NULL, /* RevertSecurityContext */
++    lsa_ImpersonateSecurityContext,
++    lsa_RevertSecurityContext,
+     lsa_MakeSignature,
+     lsa_VerifySignature,
+     NULL, /* FreeContextBuffer */
+@@ -984,7 +1031,7 @@ static const SecurityFunctionTableA lsa_sspi_tableA =
+     NULL, /* ImportSecurityContextA */
+     NULL, /* AddCredentialsA */
+     NULL, /* Reserved8 */
+-    NULL, /* QuerySecurityContextToken */
++    lsa_QuerySecurityContextToken,
+     lsa_EncryptMessage,
+     lsa_DecryptMessage,
+     NULL, /* SetContextAttributesA */
+diff --git a/dlls/secur32/negotiate.c b/dlls/secur32/negotiate.c
+index 12bb8cd..1b5a7e9 100644
+--- a/dlls/secur32/negotiate.c
++++ b/dlls/secur32/negotiate.c
+@@ -195,6 +195,17 @@ static NTSTATUS NTAPI nego_SpDeleteUserModeContext( LSA_SEC_HANDLE handle )
+     return STATUS_SUCCESS;
+ }
+ 
++static NTSTATUS NTAPI nego_SpGetContextToken( LSA_SEC_HANDLE context, HANDLE *token )
++{
++    struct user_ctx *ctxt;
++
++    TRACE( "%Ix, %p\n", context, token );
++
++    if (!(ctxt = find_user_ctx( context ))) return SEC_E_INVALID_HANDLE;
++    if (!ctxt->funcs->GetContextToken) return SEC_E_UNSUPPORTED_FUNCTION;
++    return ctxt->funcs->GetContextToken( ctxt->handle, token );
++}
++
+ static SECPKG_USER_FUNCTION_TABLE nego_user_table =
+ {
+     nego_SpInstanceInit,
+@@ -203,7 +214,7 @@ static SECPKG_USER_FUNCTION_TABLE nego_user_table =
+     nego_SpVerifySignature,
+     nego_SpSealMessage,
+     nego_SpUnsealMessage,
+-    NULL, /* SpGetContextToken */
++    nego_SpGetContextToken,
+     NULL, /* SpQueryContextAttributes */
+     NULL, /* SpCompleteAuthToken */
+     nego_SpDeleteUserModeContext,
+diff --git a/dlls/secur32/tests/ntlm.c b/dlls/secur32/tests/ntlm.c
+index bb5e468..5641710 100644
+--- a/dlls/secur32/tests/ntlm.c
++++ b/dlls/secur32/tests/ntlm.c
+@@ -1676,13 +1676,15 @@ static void test_server_context(void)
+     SecBufferDesc client_out_desc = { SECBUFFER_VERSION, 1, &client_out };
+     SecBufferDesc server_in_desc = { SECBUFFER_VERSION, 2, server_in };
+     SecBufferDesc server_out_desc = { SECBUFFER_VERSION, 1, &server_out };
+-    BYTE client_buf[4096], server_buf[4096];
++    BYTE client_buf[4096], server_buf[4096], token_user[256], ctx_user[256];
+     SEC_CHANNEL_BINDINGS bindings = { 0 };
+     CredHandle client_cred, server_cred;
+     CtxtHandle client_ctx, server_ctx;
+     SECURITY_STATUS status;
++    HANDLE token, thread_token;
+     TimeStamp expiry;
+-    ULONG attrs;
++    ULONG attrs, size;
++    BOOL ret;
+ 
+     status = AcquireCredentialsHandleW( NULL, (WCHAR *)L"NTLM", SECPKG_CRED_OUTBOUND, NULL, NULL, NULL, NULL,
+                                         &client_cred, &expiry );
+@@ -1727,7 +1729,34 @@ static void test_server_context(void)
+     status = AcceptSecurityContext( &server_cred, &server_ctx, &server_in_desc, 0, SECURITY_NATIVE_DREP,
+                                     &server_ctx, &server_out_desc, &attrs, &expiry );
+     ok( status == SEC_E_OK, "got %#lx\n", status );
++    if (status != SEC_E_OK) goto done;
+ 
++    OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token );
++    GetTokenInformation( token, TokenUser, token_user, sizeof(token_user), &size );
++    CloseHandle( token );
++
++    status = QuerySecurityContextToken( &server_ctx, &token );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++    if (!status)
++    {
++        ret = GetTokenInformation( token, TokenUser, ctx_user, sizeof(ctx_user), &size );
++        ok( ret, "got error %lu\n", GetLastError() );
++        ok( EqualSid( ((TOKEN_USER *)ctx_user)->User.Sid, ((TOKEN_USER *)token_user)->User.Sid ), "wrong user\n" );
++        CloseHandle( token );
++    }
++
++    status = ImpersonateSecurityContext( &server_ctx );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++    ret = OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &thread_token );
++    ok( ret, "got error %lu\n", GetLastError() );
++    if (ret) CloseHandle( thread_token );
++    status = RevertSecurityContext( &server_ctx );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++    SetLastError( 0xdeadbeef );
++    ret = OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &thread_token );
++    ok( !ret && GetLastError() == ERROR_NO_TOKEN, "got %d, error %lu\n", ret, GetLastError() );
++
++done:
+     DeleteSecurityContext( &server_ctx );
+     DeleteSecurityContext( &client_ctx );
+     FreeCredentialsHandle( &server_cred );
+-- 
+2.43.0
+

@@ -1,0 +1,51 @@
+From 208d08722ae7a564f164f6e9f4d712462e7c1677 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:43:37 +0200
+Subject: [PATCH 27/49] services: Don't fail StartService() while the startup
+ lock is held.
+
+The startup lock is held during automatic startup, and services started
+automatically may start other services themselves. service_start() already
+serializes starting the same service.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ programs/services/rpc.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/programs/services/rpc.c b/programs/services/rpc.c
+index 2f4d4a5..e5399a9 100644
+--- a/programs/services/rpc.c
++++ b/programs/services/rpc.c
+@@ -1279,6 +1279,7 @@ DWORD __cdecl svcctl_StartServiceW(
+     LPCWSTR *lpServiceArgVectors)
+ {
+     struct sc_service_handle *service;
++    BOOL locked;
+     DWORD err;
+ 
+     WINE_TRACE("(%p, %ld, %p)\n", hService, dwNumServiceArgs, lpServiceArgVectors);
+@@ -1289,12 +1290,16 @@ DWORD __cdecl svcctl_StartServiceW(
+     if (service->service_entry->config.dwStartType == SERVICE_DISABLED)
+         return ERROR_SERVICE_DISABLED;
+ 
+-    if (!scmdatabase_lock_startup(service->service_entry->db, 3000))
+-        return ERROR_SERVICE_DATABASE_LOCKED;
++    /* The startup lock is held during automatic startup, and services being started
++     * may start other services themselves. Windows doesn't fail in that case, and
++     * service_start() already serializes starting the same service. */
++    locked = scmdatabase_lock_startup(service->service_entry->db, 3000);
++    if (!locked)
++        WINE_TRACE("startup lock busy, starting %s anyway\n", wine_dbgstr_w(service->service_entry->name));
+ 
+     err = service_start(service->service_entry, dwNumServiceArgs, lpServiceArgVectors);
+ 
+-    scmdatabase_unlock_startup(service->service_entry->db);
++    if (locked) scmdatabase_unlock_startup(service->service_entry->db);
+     return err;
+ }
+ 
+-- 
+2.43.0
+

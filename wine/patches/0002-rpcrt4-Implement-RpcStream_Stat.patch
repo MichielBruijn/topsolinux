@@ -1,0 +1,35 @@
+From d2d32f20d015889a02dccd7f9411d6ce4ff5d033 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:27 +0200
+Subject: [PATCH 02/49] rpcrt4: Implement RpcStream_Stat().
+
+Proxies that marshal interfaces into an RPC stream may query its size.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/rpcrt4/ndr_ole.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/rpcrt4/ndr_ole.c b/dlls/rpcrt4/ndr_ole.c
+index aa7ca1a..ad0c587 100644
+--- a/dlls/rpcrt4/ndr_ole.c
++++ b/dlls/rpcrt4/ndr_ole.c
+@@ -204,8 +204,12 @@ static HRESULT WINAPI RpcStream_UnlockRegion(IStream *iface,
+ static HRESULT WINAPI RpcStream_Stat(IStream *iface, STATSTG *stat, DWORD flag)
+ {
+   RpcStreamImpl *This = impl_from_IStream(iface);
+-  FIXME("(%p): stub\n", This);
+-  return E_NOTIMPL;
++  TRACE("(%p)->(%p, %#lx)\n", This, stat, flag);
++  if (!stat) return STG_E_INVALIDPOINTER;
++  memset(stat, 0, sizeof(*stat));
++  stat->type = STGTY_STREAM;
++  stat->cbSize.QuadPart = *This->size;
++  return S_OK;
+ }
+ 
+ static HRESULT WINAPI RpcStream_Clone(IStream *iface, IStream **cloned)
+-- 
+2.43.0
+

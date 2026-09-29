@@ -1,0 +1,176 @@
+From 0de462a4987c080b0008cef62876f8b0b486a82b Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:15 +0200
+Subject: [PATCH 31/49] bcrypt: Support exporting RSA keys as legacy CAPI
+ blobs.
+
+Implement LEGACY_RSAPRIVATE_BLOB and LEGACY_RSAPUBLIC_BLOB export, used by
+crypt32/schannel with CNG keys.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/bcrypt/bcrypt_main.c  | 66 ++++++++++++++++++++++++++++++++++++++
+ dlls/bcrypt/tests/bcrypt.c | 55 +++++++++++++++++++++++++++++++
+ 2 files changed, 121 insertions(+)
+
+diff --git a/dlls/bcrypt/bcrypt_main.c b/dlls/bcrypt/bcrypt_main.c
+index b812068..d0ee3b7 100644
+--- a/dlls/bcrypt/bcrypt_main.c
++++ b/dlls/bcrypt/bcrypt_main.c
+@@ -2501,6 +2501,64 @@ static NTSTATUS export_rsa_key( const struct key *key, UCHAR *output, ULONG outp
+     return STATUS_SUCCESS;
+ }
+ 
++static NTSTATUS export_legacy_rsa_key( const struct key *key, UCHAR *output, ULONG output_len, ULONG flags,
++                                       ULONG *ret_len )
++{
++    BLOBHEADER *hdr = (BLOBHEADER *)output;
++    RSAPUBKEY *rsakey = (RSAPUBKEY *)(hdr + 1);
++    BYTE *mod, *primes[2], *exponents[2], *coefficient, *private_exp;
++    SIZE_T mod_size, half_size, primes_sizes[2];
++    UINT64 pubexp;
++    ULONG size, num_primes = 0;
++
++    if ((flags & KEY_EXPORT_FLAG_PRIVATE) && !(key->flags & KEY_FLAG_PRIVATE)) return STATUS_INVALID_PARAMETER;
++
++    mod_size = SymCryptRsakeySizeofModulus( key->a.rsa.handle );
++    half_size = (mod_size + 1) / 2;
++    size = sizeof(*hdr) + sizeof(*rsakey) + mod_size;
++    if (flags & KEY_EXPORT_FLAG_PRIVATE) size += half_size * 5 + mod_size;
++    if (output_len < size || !output)
++    {
++        *ret_len = size;
++        if (output) return STATUS_BUFFER_TOO_SMALL;
++        return STATUS_SUCCESS;
++    }
++
++    hdr->bType    = (flags & KEY_EXPORT_FLAG_PRIVATE) ? PRIVATEKEYBLOB : PUBLICKEYBLOB;
++    hdr->bVersion = CUR_BLOB_VERSION;
++    hdr->reserved = 0;
++    hdr->aiKeyAlg = CALG_RSA_KEYX;
++
++    rsakey->magic  = (flags & KEY_EXPORT_FLAG_PRIVATE) ? 0x32415352 /* RSA2 */ : 0x31415352 /* RSA1 */;
++    rsakey->bitlen = key->a.bitlen;
++
++    mod = (BYTE *)(rsakey + 1);
++    primes[0] = mod + mod_size;
++    primes[1] = primes[0] + half_size;
++    primes_sizes[0] = primes_sizes[1] = half_size;
++    if (flags & KEY_EXPORT_FLAG_PRIVATE) num_primes = 2;
++
++    if (SymCryptRsakeyGetValue( key->a.rsa.handle, mod, mod_size, &pubexp, 1, num_primes ? primes : NULL,
++                                num_primes ? primes_sizes : NULL, num_primes, SYMCRYPT_NUMBER_FORMAT_LSB_FIRST, 0 ))
++        return STATUS_INTERNAL_ERROR;
++    rsakey->pubexp = pubexp;
++
++    if (flags & KEY_EXPORT_FLAG_PRIVATE)
++    {
++        exponents[0] = primes[1] + half_size;
++        exponents[1] = exponents[0] + half_size;
++        coefficient  = exponents[1] + half_size;
++        private_exp  = coefficient + half_size;
++
++        if (SymCryptRsakeyGetCrtValue( key->a.rsa.handle, exponents, primes_sizes, 2, coefficient, half_size,
++                                       private_exp, mod_size, SYMCRYPT_NUMBER_FORMAT_LSB_FIRST, 0 ))
++            return STATUS_INTERNAL_ERROR;
++    }
++
++    *ret_len = size;
++    return STATUS_SUCCESS;
++}
++
+ static DWORD get_ecc_magic( enum alg_id alg, BOOL private )
+ {
+     switch (alg)
+@@ -2722,6 +2780,14 @@ static NTSTATUS export_asymmetric_key( const struct key *key, const WCHAR *type,
+     {
+         return export_rsa_key( key, output, output_len, 0, ret_len );
+     }
++    else if (!wcscmp( type, LEGACY_RSAPRIVATE_BLOB ))
++    {
++        return export_legacy_rsa_key( key, output, output_len, KEY_EXPORT_FLAG_PRIVATE, ret_len );
++    }
++    else if (!wcscmp( type, LEGACY_RSAPUBLIC_BLOB ))
++    {
++        return export_legacy_rsa_key( key, output, output_len, 0, ret_len );
++    }
+     else if (!wcscmp( type, LEGACY_DSA_V2_PRIVATE_BLOB ))
+     {
+         return export_legacy_dsa_key( key, output, output_len, KEY_EXPORT_FLAG_PRIVATE, ret_len );
+diff --git a/dlls/bcrypt/tests/bcrypt.c b/dlls/bcrypt/tests/bcrypt.c
+index fb7760a..36a79d6 100644
+--- a/dlls/bcrypt/tests/bcrypt.c
++++ b/dlls/bcrypt/tests/bcrypt.c
+@@ -5578,6 +5578,60 @@ static void test_CHACHA20_POLY1305(void)
+     ok(status == STATUS_SUCCESS, "got %#lx\n", status);
+ }
+ 
++static void test_legacy_rsa_blobs(void)
++{
++    struct
++    {
++        BLOBHEADER header;
++        RSAPUBKEY rsa;
++    } *blob;
++    BCRYPT_ALG_HANDLE alg;
++    BCRYPT_KEY_HANDLE key, key2;
++    UCHAR buf[2048], buf2[2048];
++    ULONG size, size2;
++    NTSTATUS status;
++
++    status = BCryptOpenAlgorithmProvider( &alg, BCRYPT_RSA_ALGORITHM, NULL, 0 );
++    ok( !status, "got %#lx\n", status );
++    status = BCryptGenerateKeyPair( alg, &key, 512, 0 );
++    ok( !status, "got %#lx\n", status );
++    status = BCryptFinalizeKeyPair( key, 0 );
++    ok( !status, "got %#lx\n", status );
++
++    size = 0;
++    status = BCryptExportKey( key, NULL, LEGACY_RSAPRIVATE_BLOB, NULL, 0, &size, 0 );
++    ok( !status, "got %#lx\n", status );
++    ok( size == sizeof(*blob) + 512 / 8 * 9 / 2, "got %lu\n", size );
++    status = BCryptExportKey( key, NULL, LEGACY_RSAPRIVATE_BLOB, buf, sizeof(buf), &size, 0 );
++    ok( !status, "got %#lx\n", status );
++    blob = (void *)buf;
++    ok( blob->header.bType == PRIVATEKEYBLOB, "got %u\n", blob->header.bType );
++    ok( blob->header.bVersion == CUR_BLOB_VERSION, "got %u\n", blob->header.bVersion );
++    ok( blob->header.aiKeyAlg == CALG_RSA_KEYX, "got %#x\n", blob->header.aiKeyAlg );
++    ok( blob->rsa.magic == 0x32415352 /* RSA2 */, "got %#lx\n", blob->rsa.magic );
++    ok( blob->rsa.bitlen == 512, "got %lu\n", blob->rsa.bitlen );
++
++    status = BCryptImportKeyPair( alg, NULL, LEGACY_RSAPRIVATE_BLOB, &key2, buf, size, 0 );
++    ok( !status, "got %#lx\n", status );
++    status = BCryptExportKey( key2, NULL, LEGACY_RSAPRIVATE_BLOB, buf2, sizeof(buf2), &size2, 0 );
++    ok( !status, "got %#lx\n", status );
++    ok( size2 == size && !memcmp( buf, buf2, size ), "keys differ\n" );
++    BCryptDestroyKey( key2 );
++
++    status = BCryptExportKey( key, NULL, LEGACY_RSAPUBLIC_BLOB, buf, sizeof(buf), &size, 0 );
++    ok( !status, "got %#lx\n", status );
++    ok( size == sizeof(*blob) + 512 / 8, "got %lu\n", size );
++    ok( blob->header.bType == PUBLICKEYBLOB, "got %u\n", blob->header.bType );
++    ok( blob->rsa.magic == 0x31415352 /* RSA1 */, "got %#lx\n", blob->rsa.magic );
++
++    /* importing legacy public blobs is not supported */
++    status = BCryptImportKeyPair( alg, NULL, LEGACY_RSAPUBLIC_BLOB, &key2, buf, size, 0 );
++    ok( status == STATUS_NOT_SUPPORTED, "got %#lx\n", status );
++
++    BCryptDestroyKey( key );
++    BCryptCloseAlgorithmProvider( alg, 0 );
++}
++
+ START_TEST(bcrypt)
+ {
+     HMODULE module;
+@@ -5620,6 +5674,7 @@ START_TEST(bcrypt)
+     test_PBKDF2();
+     test_TLS_PRF();
+     test_HKDF();
++    test_legacy_rsa_blobs();
+     test_CHACHA20_POLY1305();
+ 
+     FreeLibrary(module);
+-- 
+2.43.0
+

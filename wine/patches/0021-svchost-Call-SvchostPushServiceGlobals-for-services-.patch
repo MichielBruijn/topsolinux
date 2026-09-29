@@ -1,0 +1,175 @@
+From 1b3baa0702cfad977248bf0e35575523edf6c3d6 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:42:20 +0200
+Subject: [PATCH 21/49] svchost: Call SvchostPushServiceGlobals() for services
+ that export it.
+
+Pass a structure with the well-known SIDs and RPC helper callbacks, like
+svchost on Windows. Services such as AzureAttestService dereference it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ programs/svchost/Makefile.in |   2 +-
+ programs/svchost/svchost.c   | 112 ++++++++++++++++++++++++++++++++++-
+ 2 files changed, 110 insertions(+), 4 deletions(-)
+
+diff --git a/programs/svchost/Makefile.in b/programs/svchost/Makefile.in
+index 53288b3..9c2ada3 100644
+--- a/programs/svchost/Makefile.in
++++ b/programs/svchost/Makefile.in
+@@ -1,5 +1,5 @@
+ MODULE    = svchost.exe
+-IMPORTS   = advapi32
++IMPORTS   = advapi32 rpcrt4
+ 
+ EXTRADLLFLAGS = -mwindows -municode
+ 
+diff --git a/programs/svchost/svchost.c b/programs/svchost/svchost.c
+index 618147a..6ecefd7 100644
+--- a/programs/svchost/svchost.c
++++ b/programs/svchost/svchost.c
+@@ -30,6 +30,7 @@
+ #include "winbase.h"
+ #include "winreg.h"
+ #include "winsvc.h"
++#include "rpc.h"
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(svchost);
+@@ -102,6 +103,110 @@ static LPWSTR ExpandEnv(LPWSTR string)
+     return expanded_string;
+ }
+ 
++/* layout of the undocumented SVCHOST_GLOBAL_DATA passed to SvchostPushServiceGlobals */
++struct svchost_global_data
++{
++    PSID null_sid, world_sid, local_sid, network_sid, local_system_sid, local_service_sid,
++         network_service_sid, builtin_domain_sid, authenticated_user_sid, anonymous_logon_sid,
++         alias_admins_sid, alias_users_sid, alias_guests_sid, alias_power_users_sid,
++         alias_account_ops_sid, alias_system_ops_sid, alias_print_ops_sid, alias_backup_ops_sid;
++    DWORD (WINAPI *start_rpc_server)( const WCHAR *pipe, RPC_IF_HANDLE spec );
++    DWORD (WINAPI *stop_rpc_server)( RPC_IF_HANDLE spec );
++    DWORD (WINAPI *stop_rpc_server_ex)( RPC_IF_HANDLE spec );
++    void (WINAPI *net_bios_open)(void);
++    void (WINAPI *net_bios_close)(void);
++    DWORD (WINAPI *net_bios_reset)( UCHAR lana );
++    DWORD (WINAPI *register_stop_callback)( HANDLE *wait, const WCHAR *name, HANDLE object,
++                                            WAITORTIMERCALLBACK callback, void *context, DWORD flags );
++    void *reserved[8];
++};
++
++static DWORD WINAPI svchost_start_rpc_server( const WCHAR *pipe, RPC_IF_HANDLE spec )
++{
++    WCHAR endpoint[MAX_PATH];
++    RPC_STATUS status;
++
++    WINE_TRACE( "%s %p\n", wine_dbgstr_w(pipe), spec );
++
++    swprintf( endpoint, ARRAY_SIZE(endpoint), L"\\pipe\\%s", pipe );
++    status = RpcServerUseProtseqEpW( (RPC_WSTR)L"ncacn_np", RPC_C_PROTSEQ_MAX_REQS_DEFAULT, (RPC_WSTR)endpoint, NULL );
++    if (status && status != RPC_S_DUPLICATE_ENDPOINT) return status;
++    if ((status = RpcServerRegisterIf( spec, NULL, NULL ))) return status;
++    status = RpcServerListen( 1, RPC_C_LISTEN_MAX_CALLS_DEFAULT, TRUE );
++    return status == RPC_S_ALREADY_LISTENING ? RPC_S_OK : status;
++}
++
++static DWORD WINAPI svchost_stop_rpc_server( RPC_IF_HANDLE spec )
++{
++    WINE_TRACE( "%p\n", spec );
++    return RpcServerUnregisterIf( spec, NULL, TRUE );
++}
++
++static void WINAPI svchost_net_bios_open(void)
++{
++}
++
++static void WINAPI svchost_net_bios_close(void)
++{
++}
++
++static DWORD WINAPI svchost_net_bios_reset( UCHAR lana )
++{
++    return ERROR_SUCCESS;
++}
++
++static DWORD WINAPI svchost_register_stop_callback( HANDLE *wait, const WCHAR *name, HANDLE object,
++                                                    WAITORTIMERCALLBACK callback, void *context, DWORD flags )
++{
++    WINE_TRACE( "%p %s %p %p %p %#lx\n", wait, wine_dbgstr_w(name), object, callback, context, flags );
++
++    if (!RegisterWaitForSingleObject( wait, object, callback, context, INFINITE, flags ))
++        return GetLastError();
++    return ERROR_SUCCESS;
++}
++
++static struct svchost_global_data *get_global_data(void)
++{
++    static SID_IDENTIFIER_AUTHORITY null_auth = { SECURITY_NULL_SID_AUTHORITY };
++    static SID_IDENTIFIER_AUTHORITY world_auth = { SECURITY_WORLD_SID_AUTHORITY };
++    static SID_IDENTIFIER_AUTHORITY local_auth = { SECURITY_LOCAL_SID_AUTHORITY };
++    static SID_IDENTIFIER_AUTHORITY nt_auth = { SECURITY_NT_AUTHORITY };
++    static struct svchost_global_data *data;
++    struct svchost_global_data *new_data;
++
++    if (data) return data;
++    if (!(new_data = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*new_data) ))) return NULL;
++
++    AllocateAndInitializeSid( &null_auth, 1, SECURITY_NULL_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->null_sid );
++    AllocateAndInitializeSid( &world_auth, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->world_sid );
++    AllocateAndInitializeSid( &local_auth, 1, SECURITY_LOCAL_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->local_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_NETWORK_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->network_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_LOCAL_SYSTEM_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->local_system_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_LOCAL_SERVICE_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->local_service_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_NETWORK_SERVICE_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->network_service_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_BUILTIN_DOMAIN_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->builtin_domain_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_AUTHENTICATED_USER_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->authenticated_user_sid );
++    AllocateAndInitializeSid( &nt_auth, 1, SECURITY_ANONYMOUS_LOGON_RID, 0, 0, 0, 0, 0, 0, 0, &new_data->anonymous_logon_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &new_data->alias_admins_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_USERS, 0, 0, 0, 0, 0, 0, &new_data->alias_users_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_GUESTS, 0, 0, 0, 0, 0, 0, &new_data->alias_guests_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_POWER_USERS, 0, 0, 0, 0, 0, 0, &new_data->alias_power_users_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ACCOUNT_OPS, 0, 0, 0, 0, 0, 0, &new_data->alias_account_ops_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_SYSTEM_OPS, 0, 0, 0, 0, 0, 0, &new_data->alias_system_ops_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_PRINT_OPS, 0, 0, 0, 0, 0, 0, &new_data->alias_print_ops_sid );
++    AllocateAndInitializeSid( &nt_auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_BACKUP_OPS, 0, 0, 0, 0, 0, 0, &new_data->alias_backup_ops_sid );
++
++    new_data->start_rpc_server = svchost_start_rpc_server;
++    new_data->stop_rpc_server = svchost_stop_rpc_server;
++    new_data->stop_rpc_server_ex = svchost_stop_rpc_server;
++    new_data->net_bios_open = svchost_net_bios_open;
++    new_data->net_bios_close = svchost_net_bios_close;
++    new_data->net_bios_reset = svchost_net_bios_reset;
++    new_data->register_stop_callback = svchost_register_stop_callback;
++
++    return data = new_data;
++}
++
+ /* Fill in service table entry for a specified service */
+ static BOOL AddServiceElem(LPWSTR service_name,
+         SERVICE_TABLE_ENTRYW *service_table_entry)
+@@ -114,6 +219,7 @@ static BOOL AddServiceElem(LPWSTR service_name,
+     LPSTR dll_service_main = NULL;
+     HMODULE library = NULL;
+     LPSERVICE_MAIN_FUNCTIONW service_main_func = NULL;
++    void (WINAPI *push_globals)(struct svchost_global_data *);
+     BOOL success = FALSE;
+     DWORD reg_size;
+     DWORD size;
+@@ -204,10 +310,10 @@ static BOOL AddServiceElem(LPWSTR service_name,
+         goto cleanup;
+     }
+ 
+-    if (GetProcAddress(library, "SvchostPushServiceGlobals"))
++    if ((push_globals = (void *)GetProcAddress(library, "SvchostPushServiceGlobals")))
+     {
+-        WINE_FIXME("library %s expects undocumented SvchostPushServiceGlobals function to be called\n",
+-                   wine_dbgstr_w(dll_name_long));
++        struct svchost_global_data *data = get_global_data();
++        if (data) push_globals(data);
+     }
+ 
+     /* Fill in the service table entry */
+-- 
+2.43.0
+

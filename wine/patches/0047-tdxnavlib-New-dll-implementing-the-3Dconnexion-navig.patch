@@ -1,0 +1,908 @@
+From f2961888bae691738316ec0221e93c37a970a776 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:45:55 +0200
+Subject: [PATCH 47/49] tdxnavlib: New dll implementing the 3Dconnexion
+ navigation library on top of spacenavd.
+
+LOCAL, not for upstream: TDxNavLib.dll is part of the 3Dconnexion 3DxWare
+driver. Applications also check HKLM\Software\3Dconnexion\3DxWare\Version
+and the TDxInput type library registration before using it.
+
+Settings in HKCU\Software\Wine\TDxNavLib: TranslationSpeed, RotationSpeed,
+AxisSigns and AxisMap.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ configure                     |   2 +
+ configure.ac                  |   1 +
+ dlls/tdxnavlib/Makefile.in    |   7 +
+ dlls/tdxnavlib/main.c         | 653 ++++++++++++++++++++++++++++++++++
+ dlls/tdxnavlib/tdxnavlib.spec |   4 +
+ dlls/tdxnavlib/unixlib.c      | 117 ++++++
+ dlls/tdxnavlib/unixlib.h      |  32 ++
+ 7 files changed, 816 insertions(+)
+ create mode 100644 dlls/tdxnavlib/Makefile.in
+ create mode 100644 dlls/tdxnavlib/main.c
+ create mode 100644 dlls/tdxnavlib/tdxnavlib.spec
+ create mode 100644 dlls/tdxnavlib/unixlib.c
+ create mode 100644 dlls/tdxnavlib/unixlib.h
+
+diff --git a/configure b/configure
+index 696edeb..0ac383b 100755
+--- a/configure
++++ b/configure
+@@ -1477,6 +1477,7 @@ enable_tapi32
+ enable_taskschd
+ enable_tbs
+ enable_tdh
++enable_tdxnavlib
+ enable_tdi_sys
+ enable_threadpoolwinrt
+ enable_thumbcache
+@@ -22794,6 +22795,7 @@ wine_fn_config_makefile dlls/taskschd/tests enable_tests
+ wine_fn_config_makefile dlls/tbs enable_tbs
+ wine_fn_config_makefile dlls/tdh enable_tdh
+ wine_fn_config_makefile dlls/tdh/tests enable_tests
++wine_fn_config_makefile dlls/tdxnavlib enable_tdxnavlib
+ wine_fn_config_makefile dlls/tdi.sys enable_tdi_sys
+ wine_fn_config_makefile dlls/threadpoolwinrt enable_threadpoolwinrt
+ wine_fn_config_makefile dlls/threadpoolwinrt/tests enable_tests
+diff --git a/configure.ac b/configure.ac
+index 33bea29..118ea17 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3248,6 +3248,7 @@ WINE_CONFIG_MAKEFILE(dlls/taskschd)
+ WINE_CONFIG_MAKEFILE(dlls/taskschd/tests)
+ WINE_CONFIG_MAKEFILE(dlls/tbs)
+ WINE_CONFIG_MAKEFILE(dlls/tdh)
++WINE_CONFIG_MAKEFILE(dlls/tdxnavlib)
+ WINE_CONFIG_MAKEFILE(dlls/tdh/tests)
+ WINE_CONFIG_MAKEFILE(dlls/tdi.sys)
+ WINE_CONFIG_MAKEFILE(dlls/threadpoolwinrt)
+diff --git a/dlls/tdxnavlib/Makefile.in b/dlls/tdxnavlib/Makefile.in
+new file mode 100644
+index 0000000..6e564ad
+--- /dev/null
++++ b/dlls/tdxnavlib/Makefile.in
+@@ -0,0 +1,7 @@
++MODULE    = tdxnavlib.dll
++UNIXLIB   = tdxnavlib.so
++IMPORTS   = user32 advapi32
++
++SOURCES = \
++	main.c \
++	unixlib.c
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+new file mode 100644
+index 0000000..6bff203
+--- /dev/null
++++ b/dlls/tdxnavlib/main.c
+@@ -0,0 +1,653 @@
++/*
++ * 3Dconnexion navigation library replacement backed by spacenavd
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * Implements the NlCreate/NlClose/NlReadValue/NlWriteValue interface of
++ * TDxNavLib.dll. The client exposes its camera through property accessors;
++ * this library reads the 3D mouse input from spacenavd and moves the camera
++ * in "object mode" around the pivot, like the 3DxWare navigation library.
++ */
++
++#include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
++#include <math.h>
++#include <ctype.h>
++
++#include "ntstatus.h"
++#include "windef.h"
++#include "winbase.h"
++#include "winternl.h"
++#include "winuser.h"
++#include "winreg.h"
++#include "wine/debug.h"
++#include "wine/list.h"
++
++#include "unixlib.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(tdxnavlib);
++
++/* navlib types, see navlib_types.h in the 3Dconnexion SDK */
++
++typedef enum
++{
++    auto_type = -2, unknown_type = -1, voidptr_type = 0, bool_type, long_type, float_type,
++    double_type, point_type, vector_type, matrix_type, string_type, actionnodeexptr_type,
++    plane_type, box_type, frustum_type, cstr_type, imagearray_type
++} propertyType_t;
++
++typedef struct { double x, y, z; } point_t;
++typedef struct { point_t min, max; } box_t;
++
++typedef struct
++{
++    propertyType_t type;
++    union
++    {
++        void *p;
++        UINT32 b;
++        LONG l;
++        float f;
++        double d;
++        point_t point;
++        box_t box;
++        double m[16];
++        struct { char *p; SIZE_T length; } string;
++    };
++} value_t;
++
++typedef LONG (__cdecl *fnGetProperty_t)( UINT64 param, const char *name, value_t *value );
++typedef LONG (__cdecl *fnSetProperty_t)( UINT64 param, const char *name, const value_t *value );
++
++typedef struct
++{
++    const char *name;
++    fnGetProperty_t fnGet;
++    fnSetProperty_t fnSet;
++    UINT64 param;
++} accessor_t;
++
++typedef struct
++{
++    UINT32 size;
++    INT8 bMultiThreaded;
++    int options;
++} nlCreateOptions_t;
++
++#define NL_ROW_MAJOR_ORDER 2
++
++#define NAVLIB_ERROR(x) ((LONG)(((x) & 0xffff) | (4 << 16) | 0x80000000))
++#define NAVLIB_EINVAL 22
++#define NAVLIB_ENOMEM 12
++#define NAVLIB_PROPERTY_NOT_FOUND 0x201
++
++#define WM_NAVLIB_MOTION (WM_APP + 1)
++#define MOTION_TIMER 1
++#define MOTION_INTERVAL 15   /* ms */
++#define MOTION_IDLE 150      /* ms without input before the motion ends */
++
++struct accessor
++{
++    char *name;
++    fnGetProperty_t get;
++    fnSetProperty_t set;
++    UINT64 param;
++};
++
++struct navlib
++{
++    struct list entry;
++    UINT64 handle;
++    struct accessor *accessors;
++    SIZE_T count;
++    BOOL row_major;
++    BOOL active;
++    HWND hwnd;
++    BOOL moving;
++    DWORD last_tick;
++};
++
++static struct list navlibs = LIST_INIT( navlibs );
++static UINT64 next_handle = 1;
++static CRITICAL_SECTION cs;
++static CRITICAL_SECTION_DEBUG cs_debug =
++{
++    0, 0, &cs,
++    { &cs_debug.ProcessLocksList, &cs_debug.ProcessLocksList },
++      0, 0, { (DWORD_PTR)(__FILE__ ": cs") }
++};
++static CRITICAL_SECTION cs = { &cs_debug, -1, 0, 0, 0, 0 };
++
++/* latest 3D mouse state, protected by cs */
++static int axes[6];
++static DWORD axes_tick;
++static HANDLE reader_thread;
++
++/* tuning, full deflection of the cap is about 350 */
++static double translation_speed = 1.2 / 350.0;
++static double rotation_speed = 1.6 / 350.0;
++static int axis_sign[6] = { 1, 1, 1, 1, 1, 1 };
++static int axis_map[6] = { 0, 1, 2, 3, 4, 5 };
++
++static struct navlib *find_navlib( UINT64 handle )
++{
++    struct navlib *nl;
++    LIST_FOR_EACH_ENTRY( nl, &navlibs, struct navlib, entry )
++        if (nl->handle == handle) return nl;
++    return NULL;
++}
++
++static struct navlib *active_navlib(void)
++{
++    struct navlib *nl, *last = NULL;
++    LIST_FOR_EACH_ENTRY( nl, &navlibs, struct navlib, entry )
++    {
++        if (nl->active) return nl;
++        last = nl;
++    }
++    return last;
++}
++
++static struct accessor *find_accessor( struct navlib *nl, const char *name )
++{
++    SIZE_T i;
++    for (i = 0; i < nl->count; i++)
++        if (!strcmp( nl->accessors[i].name, name )) return &nl->accessors[i];
++    return NULL;
++}
++
++static BOOL get_value( struct navlib *nl, const char *name, value_t *value )
++{
++    struct accessor *acc = find_accessor( nl, name );
++    LONG ret;
++
++    if (!acc || !acc->get) return FALSE;
++    memset( value, 0, sizeof(*value) );
++    value->type = auto_type;
++    ret = acc->get( acc->param, acc->name, value );
++    TRACE( "%s -> %#lx type %d\n", name, ret, value->type );
++    return !ret;
++}
++
++static BOOL set_value( struct navlib *nl, const char *name, const value_t *value )
++{
++    struct accessor *acc = find_accessor( nl, name );
++    LONG ret;
++
++    if (!acc || !acc->set) return FALSE;
++    ret = acc->set( acc->param, acc->name, value );
++    TRACE( "%s type %d -> %#lx\n", name, value->type, ret );
++    return !ret;
++}
++
++static void set_bool( struct navlib *nl, const char *name, BOOL b )
++{
++    value_t value = { .type = bool_type };
++    value.b = b;
++    set_value( nl, name, &value );
++}
++
++static void set_long( struct navlib *nl, const char *name, LONG l )
++{
++    value_t value = { .type = long_type };
++    value.l = l;
++    set_value( nl, name, &value );
++}
++
++/* 3x3 rotation and position of a camera, math convention: world = R * cam + pos */
++struct frame
++{
++    double r[3][3];
++    double pos[3];
++};
++
++static BOOL translation_in_last_column( struct navlib *nl, const double *m )
++{
++    /* the bottom row of an affine matrix is (0, 0, 0, 1) */
++    if (m[3] == 0.0 && m[7] == 0.0 && m[11] == 0.0) return FALSE;
++    if (m[12] == 0.0 && m[13] == 0.0 && m[14] == 0.0) return TRUE;
++    return nl->row_major;
++}
++
++static void matrix_to_frame( const double *m, BOOL row_major, struct frame *f )
++{
++    int i, j;
++    for (i = 0; i < 3; i++)
++    {
++        for (j = 0; j < 3; j++) f->r[i][j] = row_major ? m[i * 4 + j] : m[j * 4 + i];
++        f->pos[i] = row_major ? m[i * 4 + 3] : m[12 + i];
++    }
++}
++
++static void frame_to_matrix( const struct frame *f, BOOL row_major, double *m )
++{
++    int i, j;
++    for (i = 0; i < 3; i++)
++    {
++        for (j = 0; j < 3; j++)
++        {
++            if (row_major) m[i * 4 + j] = f->r[i][j];
++            else m[j * 4 + i] = f->r[i][j];
++        }
++        if (row_major) m[i * 4 + 3] = f->pos[i];
++        else m[12 + i] = f->pos[i];
++    }
++    if (row_major) m[12] = m[13] = m[14] = 0.0;
++    else m[3] = m[7] = m[11] = 0.0;
++    m[15] = 1.0;
++}
++
++static void axis_angle_matrix( const double axis[3], double angle, double out[3][3] )
++{
++    double c = cos( angle ), s = sin( angle ), t = 1.0 - c;
++    double x = axis[0], y = axis[1], z = axis[2];
++
++    out[0][0] = t * x * x + c;     out[0][1] = t * x * y - s * z; out[0][2] = t * x * z + s * y;
++    out[1][0] = t * x * y + s * z; out[1][1] = t * y * y + c;     out[1][2] = t * y * z - s * x;
++    out[2][0] = t * x * z - s * y; out[2][1] = t * y * z + s * x; out[2][2] = t * z * z + c;
++}
++
++static void mat_mul( double a[3][3], double b[3][3], double out[3][3] )
++{
++    double tmp[3][3];
++    int i, j, k;
++    for (i = 0; i < 3; i++)
++        for (j = 0; j < 3; j++)
++            for (tmp[i][j] = 0.0, k = 0; k < 3; k++) tmp[i][j] += a[i][k] * b[k][j];
++    memcpy( out, tmp, sizeof(tmp) );
++}
++
++static void mat_vec( double m[3][3], const double v[3], double out[3] )
++{
++    double tmp[3];
++    int i;
++    for (i = 0; i < 3; i++) tmp[i] = m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2];
++    memcpy( out, tmp, sizeof(tmp) );
++}
++
++static BOOL get_pivot( struct navlib *nl, const struct frame *cam, double pivot[3] )
++{
++    value_t value;
++
++    if (get_value( nl, "pivot.position", &value ) && value.type == point_type)
++    {
++        pivot[0] = value.point.x; pivot[1] = value.point.y; pivot[2] = value.point.z;
++        return TRUE;
++    }
++    if (get_value( nl, "model.extents", &value ) && value.type == box_type &&
++        value.box.max.x >= value.box.min.x)
++    {
++        pivot[0] = (value.box.min.x + value.box.max.x) / 2;
++        pivot[1] = (value.box.min.y + value.box.max.y) / 2;
++        pivot[2] = (value.box.min.z + value.box.max.z) / 2;
++        return TRUE;
++    }
++    return FALSE;
++}
++
++static void navigate( struct navlib *nl, const int in[6], double dt )
++{
++    double t[3], w[3], pivot[3], rel[3], d[3], rot[3][3], world_rot[3][3], rt[3][3];
++    double angle, dist = 1.0, extents_scale = 1.0;
++    BOOL perspective = TRUE, have_pivot, have_extents = FALSE;
++    value_t value, extents;
++    struct frame cam;
++    BOOL row_major;
++    int i, j;
++
++    if (!get_value( nl, "view.affine", &value ) || value.type != matrix_type) return;
++    row_major = translation_in_last_column( nl, value.m );
++    matrix_to_frame( value.m, row_major, &cam );
++
++    if (get_value( nl, "view.perspective", &extents ) && extents.type == bool_type)
++        perspective = extents.b != 0;
++    if (!perspective && get_value( nl, "view.extents", &extents ) && extents.type == box_type)
++        have_extents = TRUE;
++
++    have_pivot = get_pivot( nl, &cam, pivot );
++    if (have_pivot)
++    {
++        for (i = 0; i < 3; i++) rel[i] = cam.pos[i] - pivot[i];
++        dist = sqrt( rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2] );
++    }
++    if (have_extents) dist = extents.box.max.y - extents.box.min.y;
++    if (dist < 1e-9) dist = 1.0;
++
++    /* object mode: the camera moves opposite to the cap, navlib frame is x right, y up, z out */
++    for (i = 0; i < 3; i++)
++    {
++        t[i] = -axis_sign[i] * in[axis_map[i]] * translation_speed * dist * dt;
++        w[i] = -axis_sign[i + 3] * in[axis_map[i + 3]] * rotation_speed * dt;
++    }
++
++    if (have_extents)
++    {
++        /* zoom by scaling the orthographic extents instead of moving the camera */
++        extents_scale = exp( -t[2] / dist );
++        t[2] = 0.0;
++    }
++
++    angle = sqrt( w[0] * w[0] + w[1] * w[1] + w[2] * w[2] );
++    if (angle > 1e-12 && have_pivot)
++    {
++        for (i = 0; i < 3; i++) w[i] /= angle;
++        axis_angle_matrix( w, angle, rot );
++        /* world rotation = R * rot * R^T */
++        for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) rt[i][j] = cam.r[j][i];
++        mat_mul( cam.r, rot, world_rot );
++        mat_mul( world_rot, rt, world_rot );
++
++        mat_vec( world_rot, rel, rel );
++        for (i = 0; i < 3; i++) cam.pos[i] = pivot[i] + rel[i];
++        mat_mul( world_rot, cam.r, cam.r );
++    }
++
++    mat_vec( cam.r, t, d );
++    for (i = 0; i < 3; i++) cam.pos[i] += d[i];
++
++    set_long( nl, "transaction", 1 );
++    value.type = matrix_type;
++    frame_to_matrix( &cam, row_major, value.m );
++    set_value( nl, "view.affine", &value );
++    if (have_extents && extents_scale != 1.0)
++    {
++        extents.type = box_type;
++        extents.box.min.x *= extents_scale; extents.box.min.y *= extents_scale; extents.box.min.z *= extents_scale;
++        extents.box.max.x *= extents_scale; extents.box.max.y *= extents_scale; extents.box.max.z *= extents_scale;
++        set_value( nl, "view.extents", &extents );
++    }
++    set_long( nl, "transaction", 0 );
++}
++
++static void load_settings(void);
++
++static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
++{
++    struct navlib *nl;
++    int in[6];
++    DWORD now, last;
++    BOOL idle;
++
++    if (msg != WM_NAVLIB_MOTION && msg != WM_TIMER) return DefWindowProcW( hwnd, msg, wparam, lparam );
++
++    EnterCriticalSection( &cs );
++    nl = (struct navlib *)GetWindowLongPtrW( hwnd, GWLP_USERDATA );
++    memcpy( in, axes, sizeof(in) );
++    last = axes_tick;
++    LeaveCriticalSection( &cs );
++    if (!nl) return 0;
++
++    now = GetTickCount();
++    idle = !in[0] && !in[1] && !in[2] && !in[3] && !in[4] && !in[5];
++
++    if (msg == WM_NAVLIB_MOTION)
++    {
++        if (!nl->moving && !idle)
++        {
++            load_settings();
++            nl->moving = TRUE;
++            nl->last_tick = now;
++            set_bool( nl, "motion", TRUE );
++            SetTimer( hwnd, MOTION_TIMER, MOTION_INTERVAL, NULL );
++        }
++        return 0;
++    }
++
++    if (!nl->moving) return 0;
++    if (idle && now - last > MOTION_IDLE)
++    {
++        KillTimer( hwnd, MOTION_TIMER );
++        nl->moving = FALSE;
++        set_bool( nl, "motion", FALSE );
++        return 0;
++    }
++    if (!idle) navigate( nl, in, min( now - nl->last_tick, 100 ) / 1000.0 );
++    nl->last_tick = now;
++    return 0;
++}
++
++static DWORD WINAPI reader_proc( void *arg )
++{
++    struct spnav_read_params params;
++    struct navlib *nl;
++    HWND hwnd;
++    NTSTATUS status;
++
++    for (;;)
++    {
++        if (WINE_UNIX_CALL( unix_spnav_open, NULL ))
++        {
++            Sleep( 2000 );
++            continue;
++        }
++        params.timeout = 1000;
++        status = WINE_UNIX_CALL( unix_spnav_read, &params );
++        if (status || params.data[0] != SPNAV_EVENT_MOTION)
++        {
++            if (!status) TRACE( "button event %d %d\n", params.data[0], params.data[1] );
++            continue;
++        }
++
++        EnterCriticalSection( &cs );
++        memcpy( axes, params.data + 1, sizeof(axes) );
++        axes_tick = GetTickCount();
++        hwnd = (nl = active_navlib()) ? nl->hwnd : NULL;
++        LeaveCriticalSection( &cs );
++
++        if (hwnd) PostMessageW( hwnd, WM_NAVLIB_MOTION, 0, 0 );
++    }
++    return 0;
++}
++
++static BOOL get_setting( HKEY key, const char *name, char *buf, DWORD size )
++{
++    const char *env;
++    char var[64] = "TDXNAVLIB_";
++    int i;
++
++    /* environment overrides the registry, e.g. TDXNAVLIB_ROTATIONSPEED */
++    for (i = 0; name[i] && i < 50; i++) var[10 + i] = toupper( name[i] );
++    var[10 + i] = 0;
++    if ((env = getenv( var )))
++    {
++        lstrcpynA( buf, env, size );
++        return TRUE;
++    }
++    size--;
++    if (!key || RegQueryValueExA( key, name, NULL, NULL, (BYTE *)buf, &size )) return FALSE;
++    buf[size] = 0;
++    return TRUE;
++}
++
++/* HKCU\Software\Wine\TDxNavLib: TranslationSpeed, RotationSpeed (REG_SZ numbers, default 1.2 and 1.6)
++ * AxisSigns (REG_SZ, e.g. "1,1,-1,1,1,-1" for x y z rx ry rz) and AxisMap (REG_SZ, e.g. "0,2,1,3,5,4") */
++static void load_settings(void)
++{
++    char buf[64], *p;
++    HKEY key = NULL;
++    int i;
++
++    RegOpenKeyExA( HKEY_CURRENT_USER, "Software\\Wine\\TDxNavLib", 0, KEY_READ, &key );
++    translation_speed = (get_setting( key, "TranslationSpeed", buf, sizeof(buf) ) ? atof( buf ) : 1.2) / 350.0;
++    rotation_speed = (get_setting( key, "RotationSpeed", buf, sizeof(buf) ) ? atof( buf ) : 1.6) / 350.0;
++    for (i = 0; i < 6; i++) axis_sign[i] = 1, axis_map[i] = i;
++    /* input axis used for each of x y z rx ry rz, e.g. "0,2,1,3,5,4" swaps y and z */
++    if (get_setting( key, "AxisMap", buf, sizeof(buf) ))
++        for (i = 0, p = buf; i < 6 && *p; i++)
++        {
++            int axis = atoi( p );
++            if (axis >= 0 && axis < 6) axis_map[i] = axis;
++            while (*p && *p != ',') p++;
++            if (*p == ',') p++;
++        }
++    if (get_setting( key, "AxisSigns", buf, sizeof(buf) ))
++        for (i = 0, p = buf; i < 6 && *p; i++)
++        {
++            axis_sign[i] = atoi( p ) < 0 ? -1 : 1;
++            while (*p && *p != ',') p++;
++            if (*p == ',') p++;
++        }
++    if (key) RegCloseKey( key );
++    TRACE( "speed %f %f signs %d %d %d %d %d %d\n", translation_speed * 350, rotation_speed * 350, axis_sign[0],
++           axis_sign[1], axis_sign[2], axis_sign[3], axis_sign[4], axis_sign[5] );
++}
++
++static HWND create_navlib_window( struct navlib *nl )
++{
++    static const WCHAR classW[] = L"WineTDxNavLib";
++    static BOOL registered;
++    HWND hwnd;
++
++    if (!registered)
++    {
++        WNDCLASSW wc = { .lpfnWndProc = navlib_wndproc, .lpszClassName = classW };
++        RegisterClassW( &wc );
++        registered = TRUE;
++    }
++    if ((hwnd = CreateWindowW( classW, NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, NULL, NULL )))
++        SetWindowLongPtrW( hwnd, GWLP_USERDATA, (LONG_PTR)nl );
++    return hwnd;
++}
++
++LONG __cdecl NlCreate( UINT64 *handle, const char *appname, const accessor_t *accessors,
++                       SIZE_T count, const nlCreateOptions_t *options )
++{
++    struct navlib *nl;
++    SIZE_T i;
++
++    TRACE( "%p, %s, %p, %Iu, %p\n", handle, debugstr_a(appname), accessors, count, options );
++
++    if (!handle || (count && !accessors)) return NAVLIB_ERROR( NAVLIB_EINVAL );
++    if (!(nl = calloc( 1, sizeof(*nl) ))) return NAVLIB_ERROR( NAVLIB_ENOMEM );
++    if (count && !(nl->accessors = calloc( count, sizeof(*nl->accessors) )))
++    {
++        free( nl );
++        return NAVLIB_ERROR( NAVLIB_ENOMEM );
++    }
++    for (i = 0; i < count; i++)
++    {
++        /* the names may be marshalled temporaries, keep our own copy */
++        nl->accessors[i].name = strdup( accessors[i].name ? accessors[i].name : "" );
++        nl->accessors[i].get = accessors[i].fnGet;
++        nl->accessors[i].set = accessors[i].fnSet;
++        nl->accessors[i].param = accessors[i].param;
++        TRACE( "accessor %s get %p set %p\n", debugstr_a(nl->accessors[i].name),
++               accessors[i].fnGet, accessors[i].fnSet );
++    }
++    nl->count = count;
++    if (options && options->size >= sizeof(*options)) nl->row_major = !!(options->options & NL_ROW_MAJOR_ORDER);
++    nl->hwnd = create_navlib_window( nl );
++
++    EnterCriticalSection( &cs );
++    nl->handle = next_handle++;
++    list_add_tail( &navlibs, &nl->entry );
++    if (!reader_thread)
++    {
++        reader_thread = CreateThread( NULL, 0, reader_proc, NULL, 0, NULL );
++    }
++    LeaveCriticalSection( &cs );
++
++    *handle = nl->handle;
++    return 0;
++}
++
++LONG __cdecl NlClose( UINT64 handle )
++{
++    struct navlib *nl;
++    SIZE_T i;
++
++    TRACE( "%s\n", wine_dbgstr_longlong(handle) );
++
++    EnterCriticalSection( &cs );
++    if ((nl = find_navlib( handle ))) list_remove( &nl->entry );
++    LeaveCriticalSection( &cs );
++    if (!nl) return NAVLIB_ERROR( NAVLIB_EINVAL );
++
++    if (nl->hwnd)
++    {
++        SetWindowLongPtrW( nl->hwnd, GWLP_USERDATA, 0 );
++        DestroyWindow( nl->hwnd );
++    }
++    for (i = 0; i < nl->count; i++) free( nl->accessors[i].name );
++    free( nl->accessors );
++    free( nl );
++    return 0;
++}
++
++LONG __cdecl NlReadValue( UINT64 handle, const char *name, value_t *value )
++{
++    struct navlib *nl;
++    LONG ret = NAVLIB_ERROR( NAVLIB_PROPERTY_NOT_FOUND );
++
++    TRACE( "%s, %s, %p\n", wine_dbgstr_longlong(handle), debugstr_a(name), value );
++
++    if (!name || !value) return NAVLIB_ERROR( NAVLIB_EINVAL );
++    EnterCriticalSection( &cs );
++    if (!(nl = find_navlib( handle ))) ret = NAVLIB_ERROR( NAVLIB_EINVAL );
++    else if (!strcmp( name, "active" ))
++    {
++        value->type = bool_type;
++        value->b = nl->active;
++        ret = 0;
++    }
++    else if (!strcmp( name, "motion" ))
++    {
++        value->type = bool_type;
++        value->b = nl->moving;
++        ret = 0;
++    }
++    else if (!strcmp( name, "device.present" ))
++    {
++        value->type = bool_type;
++        value->b = TRUE;
++        ret = 0;
++    }
++    else if (!strcmp( name, "settings.changed" ))
++    {
++        value->type = long_type;
++        value->l = 0;
++        ret = 0;
++    }
++    LeaveCriticalSection( &cs );
++    return ret;
++}
++
++LONG __cdecl NlWriteValue( UINT64 handle, const char *name, const value_t *value )
++{
++    struct navlib *nl, *other;
++
++    TRACE( "%s, %s, %p type %d\n", wine_dbgstr_longlong(handle), debugstr_a(name), value,
++           value ? value->type : unknown_type );
++
++    if (!name || !value) return NAVLIB_ERROR( NAVLIB_EINVAL );
++    EnterCriticalSection( &cs );
++    if (!(nl = find_navlib( handle )))
++    {
++        LeaveCriticalSection( &cs );
++        return NAVLIB_ERROR( NAVLIB_EINVAL );
++    }
++    if ((!strcmp( name, "active" ) || !strcmp( name, "focus" )) && value->type == bool_type && value->b)
++    {
++        LIST_FOR_EACH_ENTRY( other, &navlibs, struct navlib, entry ) other->active = FALSE;
++        nl->active = TRUE;
++    }
++    else if (!strcmp( name, "active" ) && value->type == bool_type) nl->active = FALSE;
++    LeaveCriticalSection( &cs );
++
++    /* commands, images and settings are accepted but not used */
++    return 0;
++}
++
++BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )
++{
++    if (reason == DLL_PROCESS_ATTACH)
++    {
++        DisableThreadLibraryCalls( instance );
++        if (__wine_init_unix_call()) return FALSE;
++    }
++    return TRUE;
++}
+diff --git a/dlls/tdxnavlib/tdxnavlib.spec b/dlls/tdxnavlib/tdxnavlib.spec
+new file mode 100644
+index 0000000..41cc431
+--- /dev/null
++++ b/dlls/tdxnavlib/tdxnavlib.spec
+@@ -0,0 +1,4 @@
++@ cdecl NlCreate(ptr str ptr long ptr)
++@ cdecl NlClose(int64)
++@ cdecl NlReadValue(int64 str ptr)
++@ cdecl NlWriteValue(int64 str ptr)
+diff --git a/dlls/tdxnavlib/unixlib.c b/dlls/tdxnavlib/unixlib.c
+new file mode 100644
+index 0000000..cf0d461
+--- /dev/null
++++ b/dlls/tdxnavlib/unixlib.c
+@@ -0,0 +1,117 @@
++/*
++ * 3Dconnexion navigation library replacement backed by spacenavd
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ */
++
++#if 0
++#pragma makedep unix
++#endif
++
++#include "config.h"
++
++#include <errno.h>
++#include <poll.h>
++#include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++#include "ntstatus.h"
++#include "windef.h"
++#include "winternl.h"
++#include "wine/debug.h"
++
++#include "unixlib.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(tdxnavlib);
++
++static int spnav_fd = -1;
++
++static NTSTATUS spnav_open( void *args )
++{
++    const char *path = getenv( "SPNAV_SOCKET" );
++    struct sockaddr_un addr = { .sun_family = AF_UNIX };
++    int fd;
++
++    if (spnav_fd != -1) return STATUS_SUCCESS;
++    if (!path) path = "/run/spnav.sock";
++    if (strlen( path ) >= sizeof(addr.sun_path)) return STATUS_INVALID_PARAMETER;
++    strcpy( addr.sun_path, path );
++
++    if ((fd = socket( AF_UNIX, SOCK_STREAM, 0 )) == -1) return STATUS_UNSUCCESSFUL;
++    if (connect( fd, (struct sockaddr *)&addr, sizeof(addr) ) == -1)
++    {
++        TRACE( "cannot connect to %s: %s\n", path, strerror( errno ) );
++        close( fd );
++        return STATUS_DEVICE_NOT_CONNECTED;
++    }
++    TRACE( "connected to %s\n", path );
++    spnav_fd = fd;
++    return STATUS_SUCCESS;
++}
++
++static NTSTATUS spnav_close( void *args )
++{
++    if (spnav_fd != -1) close( spnav_fd );
++    spnav_fd = -1;
++    return STATUS_SUCCESS;
++}
++
++static NTSTATUS spnav_read( void *args )
++{
++    struct spnav_read_params *params = args;
++    struct pollfd pfd;
++    size_t done = 0;
++    ssize_t ret;
++
++    params->data[0] = SPNAV_EVENT_NONE;
++    if (spnav_fd == -1) return STATUS_DEVICE_NOT_CONNECTED;
++
++    pfd.fd = spnav_fd;
++    pfd.events = POLLIN;
++    if ((ret = poll( &pfd, 1, params->timeout )) <= 0) return ret ? STATUS_UNSUCCESSFUL : STATUS_TIMEOUT;
++
++    /* spacenavd protocol v0 sends events as 8 native ints */
++    while (done < sizeof(params->data))
++    {
++        ret = read( spnav_fd, (char *)params->data + done, sizeof(params->data) - done );
++        if (ret <= 0)
++        {
++            if (ret < 0 && errno == EINTR) continue;
++            spnav_close( NULL );
++            params->data[0] = SPNAV_EVENT_NONE;
++            return STATUS_DEVICE_NOT_CONNECTED;
++        }
++        done += ret;
++    }
++    return STATUS_SUCCESS;
++}
++
++const unixlib_entry_t __wine_unix_call_funcs[] =
++{
++    spnav_open,
++    spnav_close,
++    spnav_read,
++};
++
++C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
++
++#ifdef _WIN64
++
++/* struct spnav_read_params has the same layout on 32-bit */
++const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
++{
++    spnav_open,
++    spnav_close,
++    spnav_read,
++};
++
++C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
++
++#endif /* _WIN64 */
+diff --git a/dlls/tdxnavlib/unixlib.h b/dlls/tdxnavlib/unixlib.h
+new file mode 100644
+index 0000000..0b7863a
+--- /dev/null
++++ b/dlls/tdxnavlib/unixlib.h
+@@ -0,0 +1,32 @@
++/*
++ * 3Dconnexion navigation library replacement backed by spacenavd
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ */
++
++#include "wine/unixlib.h"
++
++enum spnav_event_type
++{
++    SPNAV_EVENT_NONE = -1,
++    SPNAV_EVENT_MOTION = 0,
++    SPNAV_EVENT_BUTTON_PRESS = 1,
++    SPNAV_EVENT_BUTTON_RELEASE = 2,
++};
++
++struct spnav_read_params
++{
++    int timeout;   /* in milliseconds */
++    int data[8];   /* raw spacenavd event, data[0] is the type */
++};
++
++enum unix_funcs
++{
++    unix_spnav_open,
++    unix_spnav_close,
++    unix_spnav_read,
++    unix_funcs_count,
++};
+-- 
+2.43.0
+

@@ -1,0 +1,80 @@
+From f254ebb1c0aea5ff64e47ab7e264b7aebadc6c92 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:42:06 +0200
+Subject: [PATCH 17/49] sspicli: Add a semi-stub for LogonUserExExW().
+
+Return a copy of the process token. Used by the WMI provider host.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/sspicli/Makefile.in  |  1 +
+ dlls/sspicli/main.c       | 31 +++++++++++++++++++++++++++++++
+ dlls/sspicli/sspicli.spec |  2 +-
+ 3 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/sspicli/Makefile.in b/dlls/sspicli/Makefile.in
+index b6bb84c..b8da6a1 100644
+--- a/dlls/sspicli/Makefile.in
++++ b/dlls/sspicli/Makefile.in
+@@ -1,4 +1,5 @@
+ MODULE    = sspicli.dll
++IMPORTS   = advapi32
+ 
+ SOURCES = \
+ 	main.c
+diff --git a/dlls/sspicli/main.c b/dlls/sspicli/main.c
+index 799629d..64d3954 100644
+--- a/dlls/sspicli/main.c
++++ b/dlls/sspicli/main.c
+@@ -494,3 +494,34 @@ SECURITY_STATUS SEC_ENTRY SspiUnmarshalAuthIdentity(
+ 
+     return SEC_E_INVALID_TOKEN;
+ }
++
++/***********************************************************************
++ *		LogonUserExExW (SSPICLI.@)
++ */
++BOOL WINAPI LogonUserExExW( WCHAR *user, WCHAR *domain, WCHAR *password, DWORD logon_type,
++                            DWORD logon_provider, TOKEN_GROUPS *groups, HANDLE *token, PSID *logon_sid,
++                            void **profile, DWORD *profile_len, QUOTA_LIMITS *quota )
++{
++    HANDLE process_token;
++    BOOL ret;
++
++    FIXME( "%s %s %p %lu %lu %p %p %p %p %p %p: returning a copy of the process token\n", debugstr_w(user),
++           debugstr_w(domain), password, logon_type, logon_provider, groups, token, logon_sid, profile,
++           profile_len, quota );
++
++    if (!token)
++    {
++        SetLastError( ERROR_INVALID_PARAMETER );
++        return FALSE;
++    }
++    if (!OpenProcessToken( GetCurrentProcess(), TOKEN_ALL_ACCESS, &process_token )) return FALSE;
++    ret = DuplicateTokenEx( process_token, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenPrimary, token );
++    CloseHandle( process_token );
++    if (!ret) return FALSE;
++
++    if (logon_sid) *logon_sid = NULL;
++    if (profile) *profile = NULL;
++    if (profile_len) *profile_len = 0;
++    if (quota) memset( quota, 0, sizeof(*quota) );
++    return TRUE;
++}
+diff --git a/dlls/sspicli/sspicli.spec b/dlls/sspicli/sspicli.spec
+index 315bc46..5600986 100644
+--- a/dlls/sspicli/sspicli.spec
++++ b/dlls/sspicli/sspicli.spec
+@@ -31,7 +31,7 @@
+ @ stdcall InitializeSecurityContextW(ptr ptr wstr long long long ptr long ptr ptr ptr ptr) secur32.InitializeSecurityContextW
+ @ stdcall InitSecurityInterfaceA() secur32.InitSecurityInterfaceA
+ @ stdcall InitSecurityInterfaceW() secur32.InitSecurityInterfaceW
+-@ stub LogonUserExExW
++@ stdcall LogonUserExExW(wstr wstr wstr long long ptr ptr ptr ptr ptr ptr)
+ @ stdcall LsaCallAuthenticationPackage(long long ptr long ptr ptr ptr) secur32.LsaCallAuthenticationPackage
+ @ stdcall LsaConnectUntrusted(ptr) secur32.LsaConnectUntrusted
+ @ stdcall LsaDeregisterLogonProcess(long) secur32.LsaDeregisterLogonProcess
+-- 
+2.43.0
+

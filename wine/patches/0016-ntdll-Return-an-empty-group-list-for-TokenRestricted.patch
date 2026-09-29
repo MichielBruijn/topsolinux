@@ -1,0 +1,82 @@
+From a4bad49f57d735196adde31a3272f05c58089f66 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:41:40 +0200
+Subject: [PATCH 16/49] ntdll: Return an empty group list for
+ TokenRestrictedSids.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/advapi32/tests/security.c | 25 +++++++++++++++++++++++++
+ dlls/ntdll/unix/security.c     | 12 ++++++++++++
+ 2 files changed, 37 insertions(+)
+
+diff --git a/dlls/advapi32/tests/security.c b/dlls/advapi32/tests/security.c
+index c7576e2..49f6374 100644
+--- a/dlls/advapi32/tests/security.c
++++ b/dlls/advapi32/tests/security.c
+@@ -8723,6 +8723,30 @@ static void test_window_security(void)
+     LocalFree(sd);
+ }
+ 
++static void test_token_restricted_sids(void)
++{
++    TOKEN_GROUPS groups;
++    HANDLE token;
++    DWORD size;
++    BOOL ret;
++
++    ret = OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token );
++    ok( ret, "got error %lu\n", GetLastError() );
++
++    size = 0xdeadbeef;
++    SetLastError( 0xdeadbeef );
++    ret = GetTokenInformation( token, TokenRestrictedSids, NULL, 0, &size );
++    ok( !ret && GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got %d, error %lu\n", ret, GetLastError() );
++    ok( size == offsetof( TOKEN_GROUPS, Groups ), "got %lu\n", size );
++
++    groups.GroupCount = 0xdeadbeef;
++    ret = GetTokenInformation( token, TokenRestrictedSids, &groups, sizeof(groups), &size );
++    ok( ret, "got error %lu\n", GetLastError() );
++    ok( !groups.GroupCount, "got %lu groups\n", groups.GroupCount );
++
++    CloseHandle( token );
++}
++
+ START_TEST(security)
+ {
+     init();
+@@ -8795,6 +8819,7 @@ START_TEST(security)
+     test_group_as_file_owner();
+     test_IsValidSecurityDescriptor();
+     test_window_security();
++    test_token_restricted_sids();
+ 
+     /* Must be the last test, modifies process token */
+     test_token_security_descriptor();
+diff --git a/dlls/ntdll/unix/security.c b/dlls/ntdll/unix/security.c
+index 63af874..b03a85e 100644
+--- a/dlls/ntdll/unix/security.c
++++ b/dlls/ntdll/unix/security.c
+@@ -452,6 +452,18 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
+         break;
+     }
+ 
++    case TokenRestrictedSids:
++    {
++        /* FIXME: restricted tokens are not supported, report an empty list */
++        TOKEN_GROUPS *groups = info;
++        ULONG needed_size = offsetof( TOKEN_GROUPS, Groups );
++
++        if (retlen) *retlen = needed_size;
++        if (length < needed_size) status = STATUS_BUFFER_TOO_SMALL;
++        else groups->GroupCount = 0;
++        break;
++    }
++
+     case TokenPrimaryGroup:
+         SERVER_START_REQ( get_token_sid )
+         {
+-- 
+2.43.0
+

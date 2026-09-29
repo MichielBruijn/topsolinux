@@ -1,0 +1,207 @@
+From f6d6590b9dea3e3cc50b7a0eac408b27bd9ab514 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:21 +0200
+Subject: [PATCH 32/49] bcrypt: Implement the SP800-108 CTR HMAC key derivation
+ function.
+
+Used by the ASP.NET Core data protection stack.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/bcrypt/bcrypt_main.c  | 49 +++++++++++++++++++++++++++++++++++++-
+ dlls/bcrypt/tests/bcrypt.c | 41 +++++++++++++++++++++++++++++++
+ include/bcrypt.h           |  2 ++
+ 3 files changed, 91 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/bcrypt/bcrypt_main.c b/dlls/bcrypt/bcrypt_main.c
+index d0ee3b7..4e7b8b8 100644
+--- a/dlls/bcrypt/bcrypt_main.c
++++ b/dlls/bcrypt/bcrypt_main.c
+@@ -92,6 +92,7 @@ enum alg_id
+     ALG_ID_TLS1_1_KDF,
+     ALG_ID_TLS1_2_KDF,
+     ALG_ID_HKDF,
++    ALG_ID_SP800108_CTR_HMAC,
+ };
+ 
+ #define HASH_FLAG_HMAC      0x01
+@@ -387,6 +388,7 @@ builtin_algorithms[] =
+     { BCRYPT_TLS1_1_KDF_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE,      702,      0,    0 },
+     { BCRYPT_TLS1_2_KDF_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE,      702,      0,    0 },
+     { BCRYPT_HKDF_ALGORITHM,       BCRYPT_KEY_DERIVATION_INTERFACE,      702,      0,    0 },
++    { BCRYPT_SP800108_CTR_HMAC_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE, 702,     0,    0 },
+ };
+ 
+ static inline BOOL is_symmetric_alg( const struct algorithm *alg )
+@@ -509,7 +511,7 @@ static const struct algorithm pseudo_algorithms[] =
+     {{ MAGIC_ALG }, ALG_ID_RSA_SIGN },
+     {{ 0 }}, /* CAPI_KDF */
+     {{ MAGIC_ALG }, ALG_ID_PBKDF2 },
+-    {{ 0 }}, /* SP800108_CTR_HMAC */
++    {{ MAGIC_ALG }, ALG_ID_SP800108_CTR_HMAC },
+     {{ 0 }}, /* SP80056A_CONCAT */
+     {{ MAGIC_ALG }, ALG_ID_TLS1_1_KDF },
+     {{ MAGIC_ALG }, ALG_ID_TLS1_2_KDF },
+@@ -963,6 +965,7 @@ static NTSTATUS get_alg_property( const struct algorithm *alg, const WCHAR *prop
+ 
+     case ALG_ID_TLS1_1_KDF:
+     case ALG_ID_TLS1_2_KDF:
++    case ALG_ID_SP800108_CTR_HMAC:
+         return get_tls_kdf_property( prop, buf, size, ret_size );
+ 
+     case ALG_ID_HKDF:
+@@ -1707,6 +1710,7 @@ static NTSTATUS generate_symmetric_key( const struct algorithm *alg, const UCHAR
+     case ALG_ID_TLS1_1_KDF:
+     case ALG_ID_TLS1_2_KDF:
+     case ALG_ID_HKDF:
++    case ALG_ID_SP800108_CTR_HMAC:
+         if (secret_len > key_lengths.dwMaxLength / 8 || secret_len < key_lengths.dwMinLength / 8)
+         {
+             destroy_key( key );
+@@ -3737,6 +3741,7 @@ static NTSTATUS duplicate_key( const struct key *src, struct key **ret_key )
+     case ALG_ID_PBKDF2:
+     case ALG_ID_TLS1_1_KDF:
+     case ALG_ID_TLS1_2_KDF:
++    case ALG_ID_SP800108_CTR_HMAC:
+         if ((status = alloc_key( src->alg_id, src->flags, &dst ))) return status;
+         dst->s.mode       = src->s.mode;
+         dst->s.block_size = src->s.block_size;
+@@ -4446,6 +4451,45 @@ static NTSTATUS key_derivation_hkdf( const struct key *key, BCryptBufferDesc *de
+     return STATUS_SUCCESS;
+ }
+ 
++static NTSTATUS key_derivation_sp800108( const struct key *key, BCryptBufferDesc *desc, UCHAR *output,
++                                          ULONG output_len, ULONG *ret_len )
++{
++    const SYMCRYPT_MAC *mac = NULL;
++    const UCHAR *label = NULL, *context = NULL;
++    ULONG i, label_len = 0, context_len = 0;
++
++    if (desc)
++    {
++        for (i = 0; i < desc->cBuffers; i++)
++        {
++            switch (desc->pBuffers[i].BufferType)
++            {
++            case KDF_LABEL:
++                label = desc->pBuffers[i].pvBuffer;
++                label_len = desc->pBuffers[i].cbBuffer;
++                break;
++            case KDF_CONTEXT:
++                context = desc->pBuffers[i].pvBuffer;
++                context_len = desc->pBuffers[i].cbBuffer;
++                break;
++            case KDF_HASH_ALGORITHM:
++                mac = get_hmac_from_hash( desc->pBuffers[i].pvBuffer );
++                break;
++            default:
++                WARN( "unexpected buffer type %lu\n", desc->pBuffers[i].BufferType );
++                break;
++            }
++        }
++    }
++    if (!mac) return STATUS_INVALID_PARAMETER;
++
++    if (SymCryptSp800_108( mac, key->s.secret, key->s.secret_len, label, label_len, context, context_len,
++                           output, output_len )) return STATUS_INTERNAL_ERROR;
++
++    *ret_len = output_len;
++    return STATUS_SUCCESS;
++}
++
+ NTSTATUS WINAPI BCryptKeyDerivation( BCRYPT_KEY_HANDLE handle, BCryptBufferDesc *desc, UCHAR *output, ULONG output_len,
+                                      ULONG *ret_len, ULONG flags )
+ {
+@@ -4470,6 +4514,9 @@ NTSTATUS WINAPI BCryptKeyDerivation( BCRYPT_KEY_HANDLE handle, BCryptBufferDesc
+     case ALG_ID_HKDF:
+         status = key_derivation_hkdf( key, desc, output, output_len, ret_len );
+         break;
++    case ALG_ID_SP800108_CTR_HMAC:
++        status = key_derivation_sp800108( key, desc, output, output_len, ret_len );
++        break;
+     default:
+         FIXME( "unsupported algorithm %u\n", key->alg_id );
+         return STATUS_NOT_IMPLEMENTED;
+diff --git a/dlls/bcrypt/tests/bcrypt.c b/dlls/bcrypt/tests/bcrypt.c
+index 36a79d6..8ef320c 100644
+--- a/dlls/bcrypt/tests/bcrypt.c
++++ b/dlls/bcrypt/tests/bcrypt.c
+@@ -5632,6 +5632,46 @@ static void test_legacy_rsa_blobs(void)
+     BCryptCloseAlgorithmProvider( alg, 0 );
+ }
+ 
++static void test_SP800108(void)
++{
++    static UCHAR expect[] =
++        {0x44,0x5a,0x34,0xb2,0x88,0xe4,0xe9,0x8c,0x88,0xd5,0xd0,0x19,0xf7,0xaf,0x9d,0xf5,
++         0x77,0x6c,0x75,0xa5,0xff,0xf7,0x93,0x56,0x71,0x68,0xa1,0x9c,0xe4,0x39,0xe1,0xa5};
++    BCryptBuffer param_buffers[] =
++    {
++        { sizeof(BCRYPT_SHA256_ALGORITHM), KDF_HASH_ALGORITHM, (void *)BCRYPT_SHA256_ALGORITHM },
++        { 5, KDF_LABEL, (void *)"label" },
++        { 7, KDF_CONTEXT, (void *)"context" },
++    };
++    BCryptBufferDesc params = { BCRYPTBUFFER_VERSION, ARRAY_SIZE(param_buffers), param_buffers };
++    BCRYPT_ALG_HANDLE alg;
++    BCRYPT_KEY_HANDLE key;
++    UCHAR buf[32];
++    NTSTATUS status;
++    ULONG size;
++
++    status = BCryptOpenAlgorithmProvider( &alg, BCRYPT_SP800108_CTR_HMAC_ALGORITHM, NULL, 0 );
++    if (status == STATUS_NOT_FOUND)
++    {
++        win_skip( "BCRYPT_SP800108_CTR_HMAC_ALGORITHM not available\n" );
++        return;
++    }
++    ok( !status, "got %#lx\n", status );
++
++    status = BCryptGenerateSymmetricKey( alg, &key, NULL, 0, (UCHAR *)"test key", 8, 0 );
++    ok( !status, "got %#lx\n", status );
++
++    memset( buf, 'x', sizeof(buf) );
++    size = 0;
++    status = BCryptKeyDerivation( key, &params, buf, sizeof(buf), &size, 0 );
++    ok( !status, "got %#lx\n", status );
++    ok( size == sizeof(buf), "got %lu\n", size );
++    ok( !memcmp( buf, expect, sizeof(expect) ), "wrong data %s\n", wine_dbgstr_an( (char *)buf, size ) );
++
++    BCryptDestroyKey( key );
++    BCryptCloseAlgorithmProvider( alg, 0 );
++}
++
+ START_TEST(bcrypt)
+ {
+     HMODULE module;
+@@ -5674,6 +5714,7 @@ START_TEST(bcrypt)
+     test_PBKDF2();
+     test_TLS_PRF();
+     test_HKDF();
++    test_SP800108();
+     test_legacy_rsa_blobs();
+     test_CHACHA20_POLY1305();
+ 
+diff --git a/include/bcrypt.h b/include/bcrypt.h
+index c0ff617..8a9d424 100644
+--- a/include/bcrypt.h
++++ b/include/bcrypt.h
+@@ -124,6 +124,7 @@ extern "C" {
+ #define BCRYPT_TLS1_1_KDF_ALGORITHM L"TLS1_1_KDF"
+ #define BCRYPT_TLS1_2_KDF_ALGORITHM L"TLS1_2_KDF"
+ #define BCRYPT_HKDF_ALGORITHM       L"HKDF"
++#define BCRYPT_SP800108_CTR_HMAC_ALGORITHM L"SP800_108_CTR_HMAC"
+ 
+ #define BCRYPT_HKDF_HASH_ALGORITHM      L"HkdfHashAlgorithm"
+ #define BCRYPT_HKDF_SALT_AND_FINALIZE   L"HkdfSaltAndFinalize"
+@@ -232,6 +233,7 @@ static const WCHAR BCRYPT_SHA512_ALGORITHM[] = {'S','H','A','5','1','2',0};
+ static const WCHAR BCRYPT_TLS1_1_KDF_ALGORITHM[] = {'T','L','S','1','_','1','_','K','D','F',0};
+ static const WCHAR BCRYPT_TLS1_2_KDF_ALGORITHM[] = {'T','L','S','1','_','2','_','K','D','F',0};
+ static const WCHAR BCRYPT_HKDF_ALGORITHM[] = {'H','K','D','F',0};
++static const WCHAR BCRYPT_SP800108_CTR_HMAC_ALGORITHM[] = {'S','P','8','0','0','_','1','0','8','_','C','T','R','_','H','M','A','C',0};
+ 
+ static const WCHAR BCRYPT_HKDF_HASH_ALGORITHM[] = {'H','k','d','f','H','a','s','h','A','l','g','o','r','i','t','h','m',0};
+ static const WCHAR BCRYPT_HKDF_SALT_AND_FINALIZE[] = {'H','k','d','f','S','a','l','t','A','n','d','F','i','n','a','l','i','z','e',0};
+-- 
+2.43.0
+

@@ -1,0 +1,495 @@
+#!/bin/bash
+# topsolinux installer: installs TopSolid from the user's own installation media under a patched Wine
+#
+# usage: topsolinux-installer.AppImage                      graphical installer
+#        topsolinux-installer.AppImage install --media DIR [--license FILE] [--appimage DIR | --no-appimage]
+#
+# environment: TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
+#
+# Nothing of TopSolid, SQL Server or .NET is part of this installer: TopSolid, SQL Server Express and the
+# license server come from the installation media, the Microsoft runtimes are downloaded from Microsoft.
+
+set -u
+HERE="$(dirname "$(readlink -f "$0")")"
+SHARE="$HERE/usr/share/topsolinux"
+TOOLS="$HERE/usr/lib/topsolinux"
+DATA="${TOPSOLINUX_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/topsolinux}"
+LOG="$DATA/install.log"
+STATE="$DATA/install.state"
+export WINEPREFIX="$DATA/prefix"
+export WINE="$HERE/usr/bin/wine" WINESERVER="$HERE/usr/bin/wineserver"
+export PATH="$HERE/usr/bin:$TOOLS/bin:$PATH"
+export LD_LIBRARY_PATH="$TOOLS/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export WINEDEBUG=-all WINEDLLOVERRIDES="winemenubuilder.exe=d"
+SQLDIR_WIN='C:\Program Files\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQL'
+SQLDIR="$WINEPREFIX/drive_c/Program Files/Microsoft SQL Server/MSSQL15.SQLTOPSOLID/MSSQL"
+SQLPARAMS='HKLM\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\Parameters'
+OSQL='C:\Program Files\Microsoft SQL Server\150\Tools\Binn\OSQL.EXE'
+LSERVRC='C:\Program Files (x86)\Common Files\Thales\Sentinel RMS License Manager\WinNT\lservrc'
+NEED_GB=45
+
+MEDIA="" LICENSE="" APPIMAGE_DIR="" BUILD_APPIMAGE=1 GUI=0 PROGRESS=""
+
+# --- user interface -----------------------------------------------------------------------------
+
+log() { echo "$(date '+%T') $*" >> "$LOG"; }
+
+say()
+{
+    log "$*"
+    echo "topsolinux: $*" >&2
+    [ -n "$PROGRESS" ] && echo "# $*" >&3
+}
+
+fail()
+{
+    log "ERROR: $*"
+    echo "topsolinux: error: $*" >&2
+    [ -n "$PROGRESS" ] && { exec 3>&-; wait "$PROGRESS" 2>/dev/null; PROGRESS=""; }
+    [ $GUI = 1 ] && zenity --error --width=450 --title=topsolinux --text="$*\n\nDetails: $LOG"
+    exit 1
+}
+
+info()
+{
+    if [ $GUI = 1 ]; then zenity --info --width=500 --title=topsolinux --text="$*"
+    else echo "topsolinux: $*" >&2; fi
+}
+
+progress_start()
+{
+    [ $GUI = 1 ] || return
+    exec 3> >(zenity --progress --pulsate --no-cancel --auto-close --width=500 --title=topsolinux \
+                  --text="Preparing..." 2>/dev/null)
+    PROGRESS=$!
+}
+
+progress_stop()
+{
+    [ -n "$PROGRESS" ] || return
+    echo 100 >&3
+    exec 3>&-
+    wait "$PROGRESS" 2>/dev/null
+    PROGRESS=""
+}
+
+# run a step only once, so that an interrupted installation continues where it stopped
+step()
+{
+    grep -qx "$1" "$STATE" 2>/dev/null && return
+    "step_$1" || fail "step '$1' failed"
+    echo "$1" >> "$STATE"
+}
+
+# --- Wine helpers --------------------------------------------------------------------------------
+
+wine_run() { log "wine $*"; "$WINE" "$@" >> "$LOG" 2>&1; }
+
+# import a .reg file the way regedit reads it most reliably: UTF-16 with CRLF
+reg_import()
+{
+    local tmp="$WINEPREFIX/drive_c/topsolinux-import.reg"
+    { printf '\xff\xfe'; sed 's/$/\r/' "$1" | iconv -f utf-8 -t utf-16le; } > "$tmp"
+    wine_run regedit /S 'C:\topsolinux-import.reg'
+    rm -f "$tmp"
+}
+
+sql_wait_ready()
+{
+    local errlog="$SQLDIR/Log/ERRORLOG" i
+    for i in $(seq 90); do
+        if [ -f "$errlog" ] && iconv -f utf-16 -t utf-8 "$errlog" 2>/dev/null | grep -q -i 'ready for client'; then
+            return 0
+        fi
+        if [ -f "$errlog" ] && iconv -f utf-16 -t utf-8 "$errlog" 2>/dev/null | grep -q -i 'shutting down'; then
+            return 1
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+sql_query() { "$WINE" "$OSQL" -S 'np:\\.\pipe\SQLLocal\SQLTOPSOLID' -E "$@" 2>>"$LOG"; }
+
+find_version()
+{
+    local d
+    d="$(ls -d "$WINEPREFIX/drive_c/Program Files/TOPSOLID/TopSolid 7."* 2>/dev/null | sort -V | tail -1)"
+    VERSION="${d##*TopSolid }"
+    [ -n "$VERSION" ] || return 1
+    TSBIN="$d/bin"
+    PDM_SERVICE="TopSolid'Local Pdm Server $VERSION"
+}
+
+# --- installation steps --------------------------------------------------------------------------
+
+step_prefix()
+{
+    say "Creating the Wine environment"
+    wine_run wineboot -i
+    "$WINESERVER" -w
+    [ -f "$WINEPREFIX/system.reg" ]
+}
+
+step_runtimes()
+{
+    local cache="${XDG_CACHE_HOME:-$HOME/.cache}/winetricks" f
+    # use the installation media where it has the exact file winetricks expects
+    for f in "$MEDIA"/Setup/Redist/dotnet/dotnetfx35-SP1.exe; do
+        [ -f "$f" ] || continue
+        if [ "$(sha256sum < "$f" | cut -d' ' -f1)" = 0582515bde321e072f8673e829e175ed2e7a53e803127c50253af76528e66bc1 ]; then
+            mkdir -p "$cache/dotnet35sp1" && cp -n "$f" "$cache/dotnet35sp1/dotnetfx35.exe"
+        fi
+    done
+    say "Installing fonts, Visual C++ and .NET Framework 4.8 (downloaded from Microsoft, takes a while)"
+    WINETRICKS_LATEST_VERSION_CHECK=disabled winetricks --unattended corefonts vcrun2019 dotnet48 >> "$LOG" 2>&1 || return 1
+    # SQL Server's CLR Types need .NET 3.5 before TopSolid's setup runs
+    say "Installing .NET Framework 3.5"
+    WINETRICKS_LATEST_VERSION_CHECK=disabled winetricks --unattended dotnet35sp1 >> "$LOG" 2>&1 || return 1
+    wine_run winecfg /v win10
+    "$WINESERVER" -w
+}
+
+step_setup()
+{
+    progress_stop
+    info "TopSolid's own installer opens now.\n\n• Choose the modules you are licensed for and accept the license agreement.\n• If SQL Server reports an error at the end, just confirm it: topsolinux repairs SQL Server afterwards.\n• Do not install drivers or Windows-only extras (Heidenhain, SpaceMouse drivers, ...).\n\nClose the installer when it is finished."
+    log "running $MEDIA/Setup.exe"
+    (cd "$MEDIA" && "$WINE" Setup.exe >> "$LOG" 2>&1)
+    # the bootstrapper may leave msiexec or the SQL setup running for a moment
+    local i
+    for i in $(seq 60); do
+        pgrep -u "$(id -u)" -f -i 'msiexec|SQL Server Express.SETUP|SETUP.EXE' >/dev/null || break
+        sleep 5
+    done
+    progress_start
+    find_version || { say "TopSolid was not installed"; return 1; }
+    say "TopSolid $VERSION installed"
+}
+
+step_extras()
+{
+    local m
+    # after a failing SQL Server setup the bootstrapper skips the rest
+    if [ ! -f "$WINEPREFIX/drive_c/Program Files (x86)/Common Files/Thales/Sentinel RMS License Manager/WinNT/lservnt.exe" ]; then
+        m="$(ls "$MEDIA"/Setup/Redist/Sentinel\ RMS\ License\ Manager/*.msi 2>/dev/null | head -1)"
+        [ -n "$m" ] && { say "Installing the Sentinel RMS license server"; wine_run msiexec /i "$m" /qn; }
+    fi
+    if [ ! -f "$WINEPREFIX/drive_c/Program Files/TOPSOLID/TopSolid Update/bin/TopSolid.Update.exe" ]; then
+        m="$(ls "$MEDIA"/Setup/x64/TopSolid\'Update\ x64.msi 2>/dev/null | head -1)"
+        [ -n "$m" ] && { say "Installing TopSolid'Update"; wine_run msiexec /i "$m" /qn; }
+    fi
+    return 0
+}
+
+sql_healthy()
+{
+    wine_run net start 'MSSQL$SQLTOPSOLID'
+    sql_wait_ready && sql_query -h-1 -Q "set nocount on; select 'topsolinux-ok'" | grep -q topsolinux-ok
+}
+
+# SQL Server's setup fails under Wine near the end (WMI), leaving the instance unconfigured. Finish it by hand:
+# registry, system databases from the templates, their file locations and a login for the Windows admin group.
+step_sql()
+{
+    say "Checking SQL Server"
+    [ -f "$SQLDIR/Binn/sqlservr.exe" ] || { say "SQL Server Express was not installed by TopSolid's setup"; return 1; }
+    rm -f "$SQLDIR/Log/ERRORLOG"
+    if sql_healthy; then say "SQL Server works"; return 0; fi
+
+    say "Configuring SQL Server"
+    wine_run net stop 'MSSQL$SQLTOPSOLID'
+    reg_import "$SHARE/reg/sql-instance.reg"
+    reg_import "$SHARE/reg/services.reg"
+    mkdir -p "$SQLDIR/DATA" "$SQLDIR/Log" "$SQLDIR/Backup" "$SQLDIR/JOBS"
+    local f
+    for f in master.mdf mastlog.ldf model.mdf modellog.ldf msdbdata.mdf msdblog.ldf; do
+        cp -n "$SQLDIR/Binn/Templates/$f" "$SQLDIR/DATA/" || return 1
+    done
+
+    # first start: single user, minimal configuration, only master (the other databases are moved first)
+    wine_run reg add 'HKLM\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp' /v Enabled /t REG_DWORD /d 0 /f
+    wine_run reg add "$SQLPARAMS" /v SQLArg3 /d -m /f
+    wine_run reg add "$SQLPARAMS" /v SQLArg4 /d -f /f
+    wine_run reg add "$SQLPARAMS" /v SQLArg5 /d -T3608 /f
+    rm -f "$SQLDIR/Log/ERRORLOG"
+    wine_run net start 'MSSQL$SQLTOPSOLID'
+    sql_wait_ready || { say "SQL Server did not start"; return 1; }
+    cp "$SHARE/sql/firstconfig.sql" "$SHARE/sql/logins.sql" "$WINEPREFIX/drive_c/"
+    sql_query -n -i 'C:\firstconfig.sql' >> "$LOG"
+    sql_query -n -i 'C:\logins.sql' >> "$LOG"
+    rm -f "$WINEPREFIX/drive_c/firstconfig.sql" "$WINEPREFIX/drive_c/logins.sql"
+    wine_run net stop 'MSSQL$SQLTOPSOLID'
+    for f in 3 4 5; do wine_run reg delete "$SQLPARAMS" /v SQLArg$f /f; done
+
+    # normal start: TCP on port 14330 (the PDM uses it), automatic start
+    reg_import "$SHARE/reg/tweaks.reg"
+    rm -f "$SQLDIR/Log/ERRORLOG"
+    sql_healthy || { say "SQL Server does not work after configuring it"; return 1; }
+    say "SQL Server works"
+}
+
+# The local PDM refuses its first start unless TopSolid's PDM server admin tool is running
+step_pdm()
+{
+    local i state
+    find_version || return 1
+    reg_import "$SHARE/reg/tweaks.reg"
+    say "First start of the local PDM server (takes a few minutes)"
+    wine_run net stop "$PDM_SERVICE"
+    (cd "$TSBIN" && "$WINE" TopSolid.Pdm.ServerServiceAdmin.exe >> "$LOG" 2>&1 &)
+    sleep 15
+    wine_run net start "$PDM_SERVICE"
+    for i in $(seq 150); do
+        state="$("$WINE" sc query "$PDM_SERVICE" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *\([A-Z_]*\).*/\1/p')"
+        [ "$state" = RUNNING ] && break
+        sleep 2
+    done
+    wine_run taskkill /f /im TopSolid.Pdm.ServerServiceAdmin.exe
+    log "PDM service state: $state"
+    [ "$state" = RUNNING ] || { say "The local PDM server did not start"; return 1; }
+}
+
+step_finish()
+{
+    find_version || return 1
+    say "Finishing"
+    if [ -n "$LICENSE" ]; then
+        cp "$LICENSE" "$("$WINE" winepath -u "$LSERVRC" 2>/dev/null)" && log "license installed"
+    fi
+    python3 "$TOOLS/exeicon.py" "$TSBIN/TopSolid.exe" "$DATA/topsolid.png" >> "$LOG" 2>&1
+
+    # the starter with its own copy of this Wine, so the installer is not needed any more
+    rm -rf "$DATA/runtime"
+    mkdir -p "$DATA/runtime/usr/lib"
+    cp -a "$HERE/usr/bin" "$HERE/usr/share" "$DATA/runtime/usr/"
+    cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$DATA/runtime/usr/lib/"
+    mkdir -p "$DATA/runtime/usr/lib/topsolinux"
+    cp "$TOOLS/unstick.exe" "$DATA/runtime/usr/lib/topsolinux/"
+    rm -rf "$DATA/runtime/usr/share/topsolinux"
+    cp "$HERE/topsolinux-run" "$DATA/runtime/AppRun"
+    touch "$WINEPREFIX/.topsolinux"
+
+    stop_services
+}
+
+stop_services()
+{
+    find_version && wine_run net stop "$PDM_SERVICE"
+    wine_run net stop 'MSSQL$SQLTOPSOLID'
+    wine_run net stop "Sentinel RMS License Manager"
+    "$WINESERVER" -k 2>/dev/null
+    "$WINESERVER" -w 2>/dev/null
+}
+
+desktop_file()  # EXEC ICON
+{
+    cat <<EOF
+[Desktop Entry]
+Type=Application
+Name=TopSolid $VERSION
+Comment=TopSolid $VERSION with local PDM (topsolinux, Wine)
+Exec=$1
+Icon=$2
+Categories=Graphics;Engineering;
+Terminal=false
+StartupWMClass=topsolid.exe
+Actions=update;license;stop;
+
+[Desktop Action update]
+Name=TopSolid'Update
+Exec=$1 update
+
+[Desktop Action license]
+Name=TopSolid license
+Exec=$1 license-tool
+
+[Desktop Action stop]
+Name=Stop background services
+Exec=$1 stop
+EOF
+}
+
+step_menu()
+{
+    local apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    find_version || return 1
+    mkdir -p "$apps"
+    desktop_file "\"$DATA/runtime/AppRun\"" "$DATA/topsolid.png" > "$apps/topsolinux.desktop"
+    say "Menu entry created"
+}
+
+# A self-contained AppImage of this installation, e.g. for colleagues with the same license.
+# The copy uses hard links, so it takes no extra disk space and leaves the installation untouched;
+# files that are changed in the copy are replaced, never edited in place.
+step_appimage()
+{
+    local build="$DATA/appimage-build" dir="$build/AppDir" user placeholder=__wineuser__ out
+    find_version || return 1
+    out="$APPIMAGE_DIR/TopSolid-$VERSION-x86_64.AppImage"
+    say "Building $out (takes 10-20 minutes)"
+    stop_services
+    rm -rf "$build"
+    mkdir -p "$dir"
+    cp -al "$DATA/runtime/usr" "$dir/usr"
+    cp "$DATA/runtime/AppRun" "$dir/AppRun"
+    cp "$DATA/topsolid.png" "$dir/topsolid.png"
+    ln -s topsolid.png "$dir/.DirIcon"
+    desktop_file AppRun topsolid > "$dir/topsolid.desktop"
+    cp -al "$WINEPREFIX" "$dir/prefix"
+
+    local p="$dir/prefix" c
+    c="$p/drive_c"
+    user="$(ls "$c/users" | grep -v -x -e Public | head -1)"
+    rm -f "$p/.topsolinux" "$p/.pdm-wait"
+    rm -rf "$p/drive_c/Program Files/Microsoft SQL Server/MSSQL15.SQLTOPSOLID/MSSQL/Log/"*
+    rm -rf "$c/users/$user/AppData/Local/Temp/"* "$c/windows/temp/"*
+    rm -rf "$c/Program Files/Microsoft SQL Server/150/Setup Bootstrap/Log"
+    rm -rf "$c/ProgramData/TOPSOLID/TopSolid'Update/Downloads"
+    rm -f "$c/users/$user/AppData/Roaming/TOPSOLID/TopSolid/$VERSION/TopSolid.log"
+    # every user brings their own license
+    local lic="$c/Program Files (x86)/Common Files/Thales/Sentinel RMS License Manager/WinNT/lservrc"
+    rm -f "$lic" && touch "$lic"
+    # links into this machine's home and drives; Wine recreates the folder links for the new user
+    find "$c/users/$user" -maxdepth 1 -type l -delete
+    find "$p/dosdevices" -mindepth 1 -maxdepth 1 ! -name c: ! -name z: -delete
+    # the user name is filled in on the first start (sed -i writes new files, the originals stay intact)
+    mv "$c/users/$user" "$c/users/$placeholder"
+    sed -i "s/$user/$placeholder/g" "$p"/*.reg
+    grep -rlI --null "$user" "$c/users/$placeholder" "$c/ProgramData" 2>/dev/null |
+        xargs -0 -r sed -i "s/$user/$placeholder/g"
+
+    mkdir -p "$APPIMAGE_DIR"
+    ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
+        --runtime-file "$TOOLS/runtime-x86_64" "$dir" "$out.part" >> "$LOG" 2>&1 || return 1
+    mv "$out.part" "$out"
+    rm -rf "$build"
+    # the AppImage uses the same data folder, so on this machine it starts without copying anything
+    rm -rf "$DATA/runtime"
+    APPIMAGE_OUT="$out"
+    say "AppImage ready"
+}
+
+# --- checks and questions ------------------------------------------------------------------------
+
+check_media()
+{
+    [ -f "$1/Setup.exe" ] && ls "$1"/Setup/x64/TopSolid*.msi >/dev/null 2>&1
+}
+
+find_media()
+{
+    local d
+    for d in "$HOME"/Downloads/*/ "$HOME"/*/ /media/"$USER"/*/ /run/media/"$USER"/*/; do
+        check_media "$d" && { echo "${d%/}"; return; }
+    done
+}
+
+check_system()
+{
+    local free
+    mkdir -p "$DATA" || fail "cannot create $DATA"
+    free=$(df -Pk "$DATA" | awk 'NR==2 {print int($4/1024/1024)}')
+    [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free in $DATA, $NEED_GB GB needed."
+    command -v python3 >/dev/null || fail "python3 is needed"
+    ldd --version 2>/dev/null | head -1 | awk '{v=$NF; split(v,a,"."); exit !(a[1]>2 || (a[1]==2 && a[2]>=38))}' ||
+        fail "This Wine needs glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 or newer)."
+    # Wine's NTLM needs Samba's ntlm_auth; a copy is included for systems without it
+    ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"
+}
+
+ask()
+{
+    zenity --question --width=520 --title=topsolinux --ok-label=Continue --cancel-label=Cancel \
+        --text="<b>topsolinux</b> installs TopSolid on Linux from <b>your own</b> TopSolid installation media.\n\nYou need:\n• the TopSolid installation media (the folder with Setup.exe)\n• a TopSolid license (can also be added later)\n• about $NEED_GB GB of free disk space and an internet connection (for Microsoft's .NET runtimes)\n\ntopsolinux is an unofficial project and not affiliated with TOPSOLID SAS." || exit 0
+
+    local guess
+    guess="$(find_media)"
+    while :; do
+        MEDIA="$(zenity --file-selection --directory --title="Select the TopSolid installation media (folder with Setup.exe)" \
+                 ${guess:+--filename="$guess/"})" || exit 0
+        check_media "$MEDIA" && break
+        zenity --error --width=400 --title=topsolinux --text="No TopSolid installation media in\n$MEDIA\n\nSelect the folder that contains Setup.exe."
+    done
+
+    if zenity --question --width=400 --title=topsolinux --ok-label="Select file" --cancel-label="Later" \
+         --text="Do you have a TopSolid license file (lservrc)?\n\nYou can also install it later from the menu entry."; then
+        LICENSE="$(zenity --file-selection --title="Select the license file")" || LICENSE=""
+    fi
+
+    local choice
+    choice="$(zenity --list --checklist --width=520 --height=220 --title=topsolinux \
+        --text="Options" --column="" --column="option" --hide-header \
+        TRUE "Also build a TopSolid AppImage (for Gear Lever or other computers)")" || exit 0
+    if [ -n "$choice" ]; then
+        BUILD_APPIMAGE=1
+        APPIMAGE_DIR="$(zenity --file-selection --directory --title="Where should the TopSolid AppImage go?" \
+                        --filename="$DEFAULT_APPIMAGE_DIR/")" || exit 0
+    else
+        BUILD_APPIMAGE=0
+    fi
+}
+
+# --- main ----------------------------------------------------------------------------------------
+
+DEFAULT_APPIMAGE_DIR="$HOME/Applications"
+[ -d "$DEFAULT_APPIMAGE_DIR" ] || DEFAULT_APPIMAGE_DIR="$(dirname "${APPIMAGE:-$HOME/x}")"
+
+case "${1:-}" in
+    install)
+        shift
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --media)       MEDIA="$(readlink -f "$2")"; shift ;;
+                --license)     LICENSE="$(readlink -f "$2")"; shift ;;
+                --appimage)    APPIMAGE_DIR="$(readlink -f "$2")"; BUILD_APPIMAGE=1; shift ;;
+                --no-appimage) BUILD_APPIMAGE=0 ;;
+                *) echo "unknown option $1" >&2; exit 1 ;;
+            esac
+            shift
+        done
+        [ -n "$MEDIA" ] || MEDIA="$(find_media)"
+        check_media "${MEDIA:-/nonexistent}" || { echo "usage: $0 install --media DIR [--license FILE] [--appimage DIR | --no-appimage]" >&2; exit 1; }
+        [ -n "$APPIMAGE_DIR" ] || APPIMAGE_DIR="$DEFAULT_APPIMAGE_DIR"
+        [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null && GUI=1
+        ;;
+    "")
+        [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null ||
+            { echo "no display or zenity; use: $0 install --media DIR" >&2; exit 1; }
+        GUI=1
+        ask
+        ;;
+    *)
+        echo "usage: $0 [install --media DIR [--license FILE] [--appimage DIR | --no-appimage]]" >&2
+        exit 1 ;;
+esac
+
+check_system
+[ -n "$LICENSE" ] && { [ -f "$LICENSE" ] || fail "license file $LICENSE not found"; }
+echo "=== $(date '+%F %T') media $MEDIA, appimage ${BUILD_APPIMAGE}:$APPIMAGE_DIR" >> "$LOG"
+if grep -qx finish "$STATE" 2>/dev/null && { [ $BUILD_APPIMAGE = 0 ] || grep -qx appimage "$STATE"; }; then
+    info "TopSolid is already installed in $DATA.\n\nTo install again, remove that folder first."
+    exit 0
+fi
+
+progress_start
+step prefix
+step runtimes
+step setup
+step extras
+step sql
+step pdm
+step finish
+APPIMAGE_OUT=""
+if [ $BUILD_APPIMAGE = 1 ]; then
+    step appimage
+else
+    step menu
+fi
+progress_stop
+
+if [ -n "$APPIMAGE_OUT" ]; then
+    info "TopSolid $VERSION is installed.\n\nStart it with the AppImage:\n$APPIMAGE_OUT\n\n(open it with Gear Lever to get a menu entry). On this computer it uses the installation in $DATA; on another computer it installs itself on the first start.\n\nThe first start asks for the PDM connection: choose the local PDM server and log in as admin. Libraries can be added from TopSolid afterwards."
+else
+    info "TopSolid $VERSION is installed and in your application menu.\n\nThe first start asks for the PDM connection: choose the local PDM server and log in as admin. Libraries can be added from TopSolid afterwards."
+fi

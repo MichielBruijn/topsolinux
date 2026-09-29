@@ -1,0 +1,35 @@
+From b7c4a9ac079dd33ab851d89e27ff64a3013a7728 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:43:31 +0200
+Subject: [PATCH 25/49] server: Check OpenThreadToken() access against the
+ process token when OpenAsSelf is set.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ server/token.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/server/token.c b/server/token.c
+index 8fb136a..63c2e4c 100644
+--- a/server/token.c
++++ b/server/token.c
+@@ -1233,6 +1233,15 @@ DECL_HANDLER(open_token)
+             {
+                 if (!thread->token->primary && thread->token->impersonation_level <= SecurityAnonymous)
+                     set_error( STATUS_CANT_OPEN_ANONYMOUS );
++                else if (req->flags & OPEN_TOKEN_AS_SELF)
++                {
++                    /* check access against the process token instead of the impersonation token */
++                    unsigned int access = map_obj_access( &thread->token->obj, req->access );
++
++                    if (check_object_access( current->process->token, &thread->token->obj, &access ))
++                        reply->token = alloc_handle_no_access_check( current->process, thread->token,
++                                                                     access, req->attributes );
++                }
+                 else
+                     reply->token = alloc_handle( current->process, thread->token,
+                                                  req->access, req->attributes );
+-- 
+2.43.0
+

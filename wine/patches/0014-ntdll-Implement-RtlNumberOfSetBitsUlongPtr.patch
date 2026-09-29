@@ -1,0 +1,97 @@
+From 4cc1bbf50771190fc37dd81ed644b5db434a4755 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:41:33 +0200
+Subject: [PATCH 14/49] ntdll: Implement RtlNumberOfSetBitsUlongPtr().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ntdll/ntdll.spec  |  1 +
+ dlls/ntdll/process.c   | 12 ++++++++++++
+ dlls/ntdll/tests/rtl.c | 17 +++++++++++++++++
+ include/winternl.h     |  1 +
+ 4 files changed, 31 insertions(+)
+
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index ba367a9..774d446 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -932,6 +932,7 @@
+ @ stdcall RtlNumberGenericTableElementsAvl(ptr)
+ @ stdcall RtlNumberOfClearBits(ptr)
+ @ stdcall RtlNumberOfSetBits(ptr)
++@ stdcall RtlNumberOfSetBitsUlongPtr(ptr)
+ @ stdcall RtlOemStringToUnicodeSize(ptr)
+ @ stdcall RtlOemStringToUnicodeString(ptr ptr long)
+ @ stdcall RtlOemToUnicodeN(ptr long ptr ptr long)
+diff --git a/dlls/ntdll/process.c b/dlls/ntdll/process.c
+index 249b731..5c6fdb7 100644
+--- a/dlls/ntdll/process.c
++++ b/dlls/ntdll/process.c
+@@ -214,6 +214,18 @@ ULONG WINAPI RtlGetSuiteMask(void)
+ }
+ 
+ 
++/**********************************************************************
++ *           RtlNumberOfSetBitsUlongPtr  (NTDLL.@)
++ */
++ULONG WINAPI RtlNumberOfSetBitsUlongPtr( ULONG_PTR value )
++{
++    ULONG count = 0;
++
++    for (; value; value &= value - 1) count++;
++    return count;
++}
++
++
+ /**********************************************************************
+  *           RtlWow64GetSharedInfoProcess  (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/tests/rtl.c b/dlls/ntdll/tests/rtl.c
+index 3e37685..e319ba7 100644
+--- a/dlls/ntdll/tests/rtl.c
++++ b/dlls/ntdll/tests/rtl.c
+@@ -5658,6 +5658,22 @@ static void test_RtlGetSuiteMask(void)
+     ok( (mask & info.wSuiteMask) == info.wSuiteMask, "got %#lx, version suite mask %#x\n", mask, info.wSuiteMask );
+ }
+ 
++static void test_RtlNumberOfSetBitsUlongPtr(void)
++{
++    ULONG (WINAPI *pRtlNumberOfSetBitsUlongPtr)(ULONG_PTR);
++
++    pRtlNumberOfSetBitsUlongPtr = (void *)GetProcAddress( hntdll, "RtlNumberOfSetBitsUlongPtr" );
++    if (!pRtlNumberOfSetBitsUlongPtr)
++    {
++        win_skip( "RtlNumberOfSetBitsUlongPtr is not available\n" );
++        return;
++    }
++
++    ok( pRtlNumberOfSetBitsUlongPtr( 0 ) == 0, "wrong count\n" );
++    ok( pRtlNumberOfSetBitsUlongPtr( 0xf0f0 ) == 8, "wrong count\n" );
++    ok( pRtlNumberOfSetBitsUlongPtr( ~(ULONG_PTR)0 ) == sizeof(ULONG_PTR) * 8, "wrong count\n" );
++}
++
+ START_TEST(rtl)
+ {
+     InitFunctionPtrs();
+@@ -5733,4 +5749,5 @@ START_TEST(rtl)
+     test_RtlGetImageFileMachines();
+     test_RtlCheckPortableOperatingSystem();
+     test_RtlGetSuiteMask();
++    test_RtlNumberOfSetBitsUlongPtr();
+ }
+diff --git a/include/winternl.h b/include/winternl.h
+index df49441..0792e57 100644
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -5324,6 +5324,7 @@ NTSYSAPI NTSTATUS  WINAPI RtlNormalizeString(ULONG,const WCHAR*,INT,WCHAR*,INT*)
+ NTSYSAPI ULONG     WINAPI RtlNtStatusToDosError(NTSTATUS);
+ NTSYSAPI ULONG     WINAPI RtlNtStatusToDosErrorNoTeb(NTSTATUS);
+ NTSYSAPI ULONG     WINAPI RtlNumberOfSetBits(PCRTL_BITMAP);
++NTSYSAPI ULONG     WINAPI RtlNumberOfSetBitsUlongPtr(ULONG_PTR);
+ NTSYSAPI ULONG     WINAPI RtlNumberOfClearBits(PCRTL_BITMAP);
+ NTSYSAPI ULONG     WINAPI RtlOemStringToUnicodeSize(const STRING*);
+ NTSYSAPI NTSTATUS  WINAPI RtlOemStringToUnicodeString(UNICODE_STRING*,const STRING*,BOOLEAN);
+-- 
+2.43.0
+

@@ -1,0 +1,30 @@
+From 750f7d6f0c2c097d46a48f5f94590e540ac660c2 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:43:10 +0200
+Subject: [PATCH 23/49] advapi32: Fail in the WmiOpenBlock() stub.
+
+Returning success without a handle made callers use an uninitialized handle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/advapi32/wmi.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/advapi32/wmi.c b/dlls/advapi32/wmi.c
+index 3dcd9cf..cfbc88e 100644
+--- a/dlls/advapi32/wmi.c
++++ b/dlls/advapi32/wmi.c
+@@ -109,7 +109,8 @@ ULONG WMIAPI WmiNotificationRegistrationW(GUID *guid, BOOLEAN enable, void *info
+ ULONG WINAPI WmiOpenBlock(GUID *guid, ULONG access, WMIHANDLE *handle)
+ {
+     FIXME("%s %lu %p: stub\n", debugstr_guid(guid), access, handle);
+-    return ERROR_SUCCESS;
++    if (handle) *handle = NULL;
++    return ERROR_WMI_GUID_NOT_FOUND;
+ }
+ 
+ /******************************************************************************
+-- 
+2.43.0
+

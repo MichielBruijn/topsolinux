@@ -1,0 +1,238 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID]
+@="SQLTOPSOLID"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\ClusterState]
+"MPT_AGENT_CORE_CNI"=dword:00000000
+"SQL_Engine_Core_Inst"=dword:00000000
+"SQL_Replication_Core_Inst"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\ConfigurationState]
+"MPT_AGENT_CORE_CNI"=dword:00000001
+"SQL_Engine_Core_Inst"=dword:00000001
+"SQL_Replication_Core_Inst"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\CPE]
+"CollectorParameters"="SQL MSSQL15.SQLTOPSOLID"
+"CustomerFeedback"=dword:00000001
+"EnableErrorReporting"=dword:00000001
+"ErrorDumpDir"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\LOG\\"
+"TimeOfReporting"=dword:0000003c
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer]
+"AuditLevel"=dword:00000000
+"BackupDirectory"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\Backup"
+"DefaultData"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\DATA"
+"DefaultLog"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\DATA"
+"DefaultLogin"="guest"
+"FirstStart"=dword:00000000
+"LoginMode"=dword:00000002
+"NumErrorLogs"=dword:00000006
+"SetHostName"=dword:00000000
+"SysDb"=dword:00000001
+"Tapeloadwaittime"=dword:ffffffff
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\CurrentVersion]
+"CurrentVersion"="15.0.2000.5"
+"Language"=dword:00000409
+"RegisteredOwner"=""
+"SerialNumber"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\Filestream]
+"EnableLevel"=dword:00000000
+"RsFxVersion"="0600"
+"RsFxVersionBase"="0600"
+"RsFxVersionPcu"="0600"
+"ShareName"="SQLTOPSOLID"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\HADR]
+"HADR_Enabled"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\Parameters]
+"SQLArg0"="-dC:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\DATA\\master.mdf"
+"SQLArg1"="-eC:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\Log\\ERRORLOG"
+"SQLArg2"="-lC:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\DATA\\mastlog.ldf"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib]
+"AcceptedSPNs"=hex(7):00,00
+"Certificate"=""
+"DisplayName"="SQL Server Network Configuration"
+"ExtendedProtection"=dword:00000000
+"ForceEncryption"=dword:00000000
+"HideInstance"=dword:00000000
+"ProtocolList"=hex(7):73,00,6d,00,00,00,6e,00,70,00,00,00,74,00,63,00,70,00,00,\
+  00,00,00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\AdminConnection]
+"DisplayName"="Dedicated Administrative Connection"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\AdminConnection\Tcp]
+"DisplayName"="TCP/IP"
+"TcpDynamicPorts"="0"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Np]
+"DisplayName"="Named Pipes"
+"Enabled"=dword:00000001
+"PipeName"="\\\\.\\pipe\\MSSQL$SQLTOPSOLID\\sql\\query"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Sm]
+"DisplayName"="Shared Memory"
+"Enabled"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp]
+"DisplayName"="TCP/IP"
+"Enabled"=dword:00000001
+"KeepAlive"=dword:00007530
+"ListenOnAllIPs"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp\IP1]
+"Active"=dword:00000001
+"DisplayName"="Specific IP Address"
+"Enabled"=dword:00000000
+"IpAddress"="fe80::a775:9a47:aa9c:5cbf%4"
+"TcpDynamicPorts"="0"
+"TcpPort"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp\IP2]
+"Active"=dword:00000001
+"DisplayName"="Specific IP Address"
+"Enabled"=dword:00000000
+"IpAddress"="192.168.4.9"
+"TcpDynamicPorts"="0"
+"TcpPort"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp\IP3]
+"Active"=dword:00000001
+"DisplayName"="Specific IP Address"
+"Enabled"=dword:00000000
+"IpAddress"="::1"
+"TcpDynamicPorts"="0"
+"TcpPort"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp\IP4]
+"Active"=dword:00000001
+"DisplayName"="Specific IP Address"
+"Enabled"=dword:00000000
+"IpAddress"="127.0.0.1"
+"TcpDynamicPorts"="0"
+"TcpPort"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp\IPAll]
+"DisplayName"="Any IP Address"
+"TcpDynamicPorts"=""
+"TcpPort"="14330"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Via]
+"DefaultServerPort"="0:1433"
+"DisplayName"="VIA"
+"Enabled"=dword:00000000
+"ListenInfo"="0:1433"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\ADSDSOObject]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\DB2OLEDB]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\MSDASQL]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\MSIDXS]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\MSOLAP]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\MSOLEDBSQL]
+"AllowInProcess"=dword:00000001
+"DisallowAdhocAccess"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\MSQLImpProv]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\MSSEARCHSQL]
+"AllowInProcess"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Providers\SQLNCLI11]
+"AllowInProcess"=dword:00000001
+"DisallowAdhocAccess"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Replication]
+"DistributionDB"=""
+"IsInstalled"=dword:00000001
+"WorkingDirectory"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\repldata"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Security]
+"Entropy"=hex:c0,69,20,c4,bd,03,4c,38,a7,2c,f6,8b,fc,f8,51,9a,71,ef,c2,e5,04,\
+  37,91,bd,b7,6c,67,97,fc,ff,b9,ee,36,15,6e,4a,39,70,4c,da,df,ae,43,0d,ff,49,\
+  71,da,93,ac,61,9b,4d,d9,2a,c9,53,d9,86,7f,a2,8c,21,d6,ee,14,cc,fe,b1,39,bd,\
+  85,fd,53,1d,29,80,39,a3,0a,5c,05,41,b3,88,d3,e4,17,50,93,05,f1,df,ab,a2,a2,\
+  ca,8d,6e,9e,d0,43,47,fd,84,da,07,ce,2e,47,d1,ad,9e,19,f6,9f,28,a3,9b,d3,d6,\
+  1e,32,d7,a0,e9,42,8d,06,b8,23,66,ea,56,fb,aa,10,08,e4,2b,bc,d7,bb,27,9a,80,\
+  16,ff,2b,6f,d2,7d,86,c1,6a,d3,ff,59,56,e0,2b,d3,8d,18,c7,3c,02,23,3a,c5,56,\
+  7a,d7,9f,b1,ed,f1,b4,67,b9,be,14,20,0f,1e,60,8f,8e,34,c3,6a,b8,57,49,e3,87,\
+  76,80,89,d8,0a,b2,35,8a,ae,d9,ce,89,04,05,85,c3,0b,b2,ab,9f,94,60,56,2d,b0,\
+  07,cd,9d,53,b5,50,59,1b,4c,d0,10,8c,87,db,93,e6,7a,ed,90,5e,78,5b,4c,39,5c,\
+  dc,0c,1e,39,f6,34,35,39,b7,c3
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Setup]
+"AGTGroup"="S-1-5-80-1888588573-2430680993-3178088558-1160350781-227456544"
+"checksum"=hex:39,36,33,66,66,66,30,65,62,38,32,62,30,34,37,62,31,30,35,31,36,\
+  38,32,31,30,30,63,66,30,30,36,30,33,31,33,63,61,33,33,38,36,66,31,30,37,33,\
+  66,64,35,61,35,30,32,39,64,33,66,30,64,37,37,64,36,35,37,39,63,34,62,35,63,\
+  65,66,65,33,33,37,36,31,65,30,34,66,37,65,30,31,65,64,35,62,65,32,37,36,64,\
+  38,39,61,31,38,32,39,35,38,33,39,30,61,36,35,66,33,65,38,37,63,34,38,35,31,\
+  61,30,34,62,66,31,35,61,30,63,31,66,35,61,38,33,64,66,62,39,34,33,34,62,35,\
+  37,61,66,66,65,61,38,65,36,31,33,36,65,63,32,32,32,66,61,31,61,35,61,39,35,\
+  31,62,39,65,31,65,65,36,62,33,65,62,33,35,30,36,32,66,39,65,33,30,36,00
+"Collation"="SQL_Latin1_General_CP1_CI_AS"
+"Edition"="Express Edition"
+"EditionType"="Express Edition"
+"FeatureList"="SQL_Engine_Core_Inst=3 SQL_DataFiles_Core_Inst=3 SQL_ENGINE_DB_CNI=3 SQL_CMDLINETOOLS_CNI=3 SQL_DUMPER_CNI=3 SQL_Engine_CNI=3 SQL_ENGINE_CORE_CNI=3 SQL_LEGACYTOOLS_CNI=3 SQL_REPL_ENGINE_SUPPORT_CNI=3 SQL_SLP_ENGINE_SUPPORT_CNI=3 MPT_AGENT_CORE_CNI=3 MPT_AGENT_CORE_MNGD_CNI=3 SQL_AGENT_FNI=3 SQL_DATA_COLLECTOR_FNI=3 SQL_LEGACYTOOLS_FNI=3 SQL_MAIL_FNI=3 SQL_REPL_ENGINE_SUPPORT_FNI=3 SQL_UPGRADESCRIPTS_FNI=3"
+"Language"=dword:00000409
+"PatchLevel"="15.0.2000.5"
+"ProductCode"="{0E581F1D-FE1D-4F78-B726-765401913B5C}"
+"SP"=dword:00000000
+"SQLBinRoot"="c:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\Binn"
+"SQLDataRoot"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL"
+"SQLGroup"="S-1-5-80-1113342563-2048070870-3578493407-112815269-3791094729"
+"SQLPath"="c:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL"
+"SqlProgramDir"="c:\\Program Files\\Microsoft SQL Server\\"
+"Version"="15.0.2000.5"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Setup\SQL_Engine_Core_Inst]
+"FeatureList"="SQL_Engine_Core_Inst=3 SQL_DataFiles_Core_Inst=3 SQL_ENGINE_DB_CNI=3 SQL_CMDLINETOOLS_CNI=3 SQL_DUMPER_CNI=3 SQL_Engine_CNI=3 SQL_ENGINE_CORE_CNI=3 SQL_LEGACYTOOLS_CNI=3 SQL_REPL_ENGINE_SUPPORT_CNI=3 SQL_SLP_ENGINE_SUPPORT_CNI=3 MPT_AGENT_CORE_CNI=3 MPT_AGENT_CORE_MNGD_CNI=3 SQL_AGENT_FNI=3 SQL_DATA_COLLECTOR_FNI=3 SQL_LEGACYTOOLS_FNI=3 SQL_MAIL_FNI=3 SQL_REPL_ENGINE_SUPPORT_FNI=3 SQL_UPGRADESCRIPTS_FNI=3"
+"PatchLevel"="15.0.2000.5"
+"ProductCode"="{0E581F1D-FE1D-4F78-B726-765401913B5C}"
+"Version"="15.0.2000.5"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\Setup\SQL_Engine_Core_Inst\1033]
+"FeatureList"="SQL_Engine_Core_Inst_Loc=3 SQL_ENGINE_CORE_CLI=3 MPT_AGENT_CORE_CLI=3 MPT_AGENT_CORE_MNGD_CLI=3 SQL_AGENT_FLI=3 SQL_DATA_COLLECTOR_FLI=3 SQL_LEGACYTOOLS_FLI=3 SQL_MAIL_FLI=3"
+"PatchLevel"="15.0.2000.5"
+"ProductCode"="{B62B8881-42EE-4A95-8E67-4538711F90C0}"
+"Version"="15.0.2000.5"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\SQLServerAgent]
+"DownloadedMaxRows"=dword:00000064
+"ErrorLogFile"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\Log\\SQLAGENT.OUT"
+"ErrorLoggingLevel"=dword:00000003
+"JobHistoryMaxRows"=dword:000003e8
+"JobHistoryMaxRowsPerJob"=dword:00000064
+"MSXServerName"=""
+"NonAlertableErrors"="1204,4002"
+"RestartServer"="1"
+"ServerHost"=""
+"SysAdminOnly"="1"
+"WorkingDirectory"="C:\\Program Files\\Microsoft SQL Server\\MSSQL15.SQLTOPSOLID\\MSSQL\\JOBS"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\SQLServerSCP]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\UpgradeIncompleteState]
+"MPT_AGENT_CORE_CNI"=dword:00000000
+"SQL_Engine_Core_Inst"=dword:00000000
+"SQL_Replication_Core_Inst"=dword:00000000
+

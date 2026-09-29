@@ -1,0 +1,57 @@
+From 2c02c29fb7a0cb580e11b8c72701298babe45a94 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:39 +0200
+Subject: [PATCH 09/49] combase: Expand REG_EXPAND_SZ LocalServer32 command
+ lines.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/combase/rpc.c | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/combase/rpc.c b/dlls/combase/rpc.c
+index d9da9c3..a11517f 100644
+--- a/dlls/combase/rpc.c
++++ b/dlls/combase/rpc.c
+@@ -482,7 +482,8 @@ static HRESULT create_server(REFCLSID rclsid, HANDLE *process)
+     BOOL                is_wow64 = FALSE, is_opposite = FALSE;
+     HRESULT             hr;
+     WCHAR               command[MAX_PATH + ARRAY_SIZE(embeddingW)];
+-    DWORD               size = (MAX_PATH+1) * sizeof(WCHAR);
++    WCHAR               value[MAX_PATH + 1] = {0};
++    DWORD               size = MAX_PATH * sizeof(WCHAR), type;
+     STARTUPINFOW        sinfo;
+     PROCESS_INFORMATION pinfo;
+     LONG ret;
+@@ -501,7 +502,7 @@ static HRESULT create_server(REFCLSID rclsid, HANDLE *process)
+         return hr;
+     }
+ 
+-    ret = RegQueryValueExW(key, NULL, NULL, NULL, (LPBYTE)command, &size);
++    ret = RegQueryValueExW(key, NULL, NULL, &type, (LPBYTE)value, &size);
+     RegCloseKey(key);
+     if (ret)
+     {
+@@ -509,6 +510,18 @@ static HRESULT create_server(REFCLSID rclsid, HANDLE *process)
+         return REGDB_E_CLASSNOTREG; /* FIXME: check retval */
+     }
+ 
++    if (type == REG_EXPAND_SZ)
++    {
++        DWORD len = ExpandEnvironmentStringsW(value, command, MAX_PATH);
++        if (!len || len > MAX_PATH)
++        {
++            WARN("Failed to expand LocalServer32 value %s\n", debugstr_w(value));
++            return REGDB_E_CLASSNOTREG;
++        }
++    }
++    else
++        lstrcpyW(command, value);
++
+     memset(&sinfo, 0, sizeof(sinfo));
+     sinfo.cb = sizeof(sinfo);
+ 
+-- 
+2.43.0
+

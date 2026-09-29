@@ -1,0 +1,86 @@
+From ff07932f191941021a45896122e6fab65ce08b7d Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:43:37 +0200
+Subject: [PATCH 26/49] services: Start the dependencies of a service before
+ starting it.
+
+Services configured with DependOnService (e.g. an application server that
+depends on MSSQL$INSTANCE and http) were started before their dependencies.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ programs/services/services.c | 51 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
+diff --git a/programs/services/services.c b/programs/services/services.c
+index 0830a75..a344698 100644
+--- a/programs/services/services.c
++++ b/programs/services/services.c
+@@ -1154,12 +1154,63 @@ static DWORD process_send_start_message(struct process_entry *process, BOOL shar
+     return result;
+ }
+ 
++static DWORD service_start_depth(struct service_entry *service, DWORD service_argc, LPCWSTR *service_argv,
++                                 unsigned int depth);
++
++/* like the Windows SCM, start the services this service depends on first */
++static void service_start_dependencies(struct service_entry *service, unsigned int depth)
++{
++    const WCHAR *name;
++
++    if (!service->dependOnServices) return;
++    if (depth > 8)
++    {
++        WINE_FIXME("dependency chain of %s too deep\n", wine_dbgstr_w(service->name));
++        return;
++    }
++
++    for (name = service->dependOnServices; *name; name += lstrlenW(name) + 1)
++    {
++        struct service_entry *dep;
++        DWORD state, err;
++
++        scmdatabase_lock(service->db);
++        if ((dep = scmdatabase_find_service(service->db, name))) grab_service(dep);
++        scmdatabase_unlock(service->db);
++        if (!dep)
++        {
++            WINE_WARN("dependency %s of %s not found\n", wine_dbgstr_w(name), wine_dbgstr_w(service->name));
++            continue;
++        }
++
++        service_lock(dep);
++        state = dep->status.dwCurrentState;
++        service_unlock(dep);
++        if (state != SERVICE_RUNNING && state != SERVICE_START_PENDING)
++        {
++            WINE_TRACE("starting dependency %s of %s\n", wine_dbgstr_w(name), wine_dbgstr_w(service->name));
++            err = service_start_depth(dep, 0, NULL, depth + 1);
++            if (err && err != ERROR_SERVICE_ALREADY_RUNNING)
++                WINE_WARN("failed to start dependency %s: %lu\n", wine_dbgstr_w(name), err);
++        }
++        release_service(dep);
++    }
++}
++
+ DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *service_argv)
++{
++    return service_start_depth(service, service_argc, service_argv, 0);
++}
++
++static DWORD service_start_depth(struct service_entry *service, DWORD service_argc, LPCWSTR *service_argv,
++                                 unsigned int depth)
+ {
+     struct process_entry *process = NULL;
+     BOOL shared_process;
+     DWORD err;
+ 
++    service_start_dependencies(service, depth);
++
+     err = service_start_process(service, &process, &shared_process);
+     if (err == ERROR_SUCCESS)
+     {
+-- 
+2.43.0
+

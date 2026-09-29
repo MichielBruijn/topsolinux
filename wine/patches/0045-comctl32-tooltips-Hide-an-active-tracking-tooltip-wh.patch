@@ -1,0 +1,31 @@
+From 0a83ec050f344997c429d891696479852613e16d Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 29 Sep 2026 13:22:06 +0200
+Subject: [PATCH 45/49] comctl32/tooltips: Hide an active tracking tooltip when
+ its tool is deleted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/comctl32/tooltips.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/dlls/comctl32/tooltips.c b/dlls/comctl32/tooltips.c
+index 876736b..eaf7285 100644
+--- a/dlls/comctl32/tooltips.c
++++ b/dlls/comctl32/tooltips.c
+@@ -1203,6 +1203,11 @@ TOOLTIPS_DelToolT (TOOLTIPS_INFO *infoPtr, const TTTOOLINFOW *ti, BOOL isW)
+ 
+     /* make sure the tooltip has disappeared before deleting it */
+     TOOLTIPS_Hide(infoPtr);
++    if (infoPtr->nTrackTool == nTool)
++    {
++        TOOLTIPS_TrackHide(infoPtr);
++        infoPtr->bTrackActive = FALSE;
++    }
+ 
+     toolPtr = &infoPtr->tools[nTool];
+     TOOLTIPS_FreeToolText (toolPtr);
+-- 
+2.43.0
+

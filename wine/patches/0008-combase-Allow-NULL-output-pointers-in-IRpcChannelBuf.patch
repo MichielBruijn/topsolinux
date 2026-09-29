@@ -1,0 +1,41 @@
+From 6bac41425a89a60976b3d1aa93b7fa832791a3d8 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:39 +0200
+Subject: [PATCH 08/49] combase: Allow NULL output pointers in
+ IRpcChannelBuffer::GetDestCtx().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/combase/rpc.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/combase/rpc.c b/dlls/combase/rpc.c
+index dc33877..d9da9c3 100644
+--- a/dlls/combase/rpc.c
++++ b/dlls/combase/rpc.c
+@@ -1586,8 +1586,8 @@ static HRESULT WINAPI ClientRpcChannelBuffer_GetDestCtx(LPRPCCHANNELBUFFER iface
+ 
+     TRACE("(%p,%p)\n", pdwDestContext, ppvDestContext);
+ 
+-    *pdwDestContext = This->super.dest_context;
+-    *ppvDestContext = This->super.dest_context_data;
++    if (pdwDestContext) *pdwDestContext = This->super.dest_context;
++    if (ppvDestContext) *ppvDestContext = This->super.dest_context_data;
+ 
+     return S_OK;
+ }
+@@ -1598,8 +1598,8 @@ static HRESULT WINAPI ServerRpcChannelBuffer_GetDestCtx(LPRPCCHANNELBUFFER iface
+ 
+     TRACE("(%p,%p)\n", dest_context, dest_context_data);
+ 
+-    *dest_context = This->dest_context;
+-    *dest_context_data = This->dest_context_data;
++    if (dest_context) *dest_context = This->dest_context;
++    if (dest_context_data) *dest_context_data = This->dest_context_data;
+     return S_OK;
+ }
+ 
+-- 
+2.43.0
+

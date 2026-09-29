@@ -1,0 +1,100 @@
+From b8496aa81369e67c37dfad10167fae2e3a835584 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:45:40 +0200
+Subject: [PATCH 41/49] msv1_0: Support SECPKG_ATTR_NAMES for server contexts.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/msv1_0/main.c        | 38 +++++++++++++++++++++++++++++++++++++-
+ dlls/secur32/tests/ntlm.c | 14 ++++++++++++++
+ 2 files changed, 51 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/msv1_0/main.c b/dlls/msv1_0/main.c
+index 58a65ee..b276f89 100644
+--- a/dlls/msv1_0/main.c
++++ b/dlls/msv1_0/main.c
+@@ -2052,11 +2052,47 @@ static NTSTATUS NTAPI ntlm_SpQueryContextAttributes( LSA_SEC_HANDLE handle, ULON
+     X(SECPKG_ATTR_AUTHORITY);
+     X(SECPKG_ATTR_DCE_INFO);
+     X(SECPKG_ATTR_LIFESPAN);
+-    X(SECPKG_ATTR_NAMES);
+     X(SECPKG_ATTR_NATIVE_NAMES);
+     X(SECPKG_ATTR_PASSWORD_EXPIRY);
+     X(SECPKG_ATTR_STREAM_SIZES);
+     X(SECPKG_ATTR_TARGET_INFORMATION);
++    case SECPKG_ATTR_NAMES:
++    {
++        struct ntlm_ctx *ctx = (struct ntlm_ctx *)handle;
++        WCHAR name[DNLEN + UNLEN + 2], *domain = name;
++        DWORD user_len = UNLEN + 1, domain_len = DNLEN + 1;
++        char tmp[256];
++        TOKEN_USER *token_user = (TOKEN_USER *)tmp;
++        SecPkgContext_NamesW names;
++        SECPKG_CALL_INFO info;
++        SID_NAME_USE use;
++        NTSTATUS status;
++        DWORD size;
++
++        if (ctx->mode != MODE_SERVER || !ctx->token)
++        {
++            FIXME( "SECPKG_ATTR_NAMES only supported for local server contexts\n" );
++            break;
++        }
++        if (!GetTokenInformation( ctx->token, TokenUser, token_user, sizeof(tmp), &size ) ||
++            !LookupAccountSidW( NULL, token_user->User.Sid, name + DNLEN + 1, &user_len, domain, &domain_len, &use ))
++            return SEC_E_INTERNAL_ERROR;
++        domain[domain_len++] = '\\';
++        memmove( domain + domain_len, name + DNLEN + 1, (user_len + 1) * sizeof(WCHAR) );
++
++        size = (wcslen( name ) + 1) * sizeof(WCHAR);
++        status = lsa_secpkg_table->AllocateClientBuffer( NULL, size, (void **)&names.sUserName );
++        if (status) return status;
++        lsa_secpkg_table->CopyToClientBuffer( NULL, size, names.sUserName, name );
++
++        lsa_secpkg_table->GetCallInfo( &info );
++        if (info.Attributes & SECPKG_CALL_WOWCLIENT)
++        {
++            ULONG names32 = (ULONG_PTR)names.sUserName;
++            return lsa_secpkg_table->CopyToClientBuffer( NULL, sizeof(names32), buf, &names32 );
++        }
++        return lsa_secpkg_table->CopyToClientBuffer( NULL, sizeof(names), buf, &names );
++    }
+     case SECPKG_ATTR_FLAGS:
+     {
+         SecPkgContext_Flags flags;
+diff --git a/dlls/secur32/tests/ntlm.c b/dlls/secur32/tests/ntlm.c
+index 5641710..2b3db01 100644
+--- a/dlls/secur32/tests/ntlm.c
++++ b/dlls/secur32/tests/ntlm.c
+@@ -1680,6 +1680,8 @@ static void test_server_context(void)
+     SEC_CHANNEL_BINDINGS bindings = { 0 };
+     CredHandle client_cred, server_cred;
+     CtxtHandle client_ctx, server_ctx;
++    SecPkgContext_NamesW names;
++    WCHAR user_name[256];
+     SECURITY_STATUS status;
+     HANDLE token, thread_token;
+     TimeStamp expiry;
+@@ -1731,6 +1733,18 @@ static void test_server_context(void)
+     ok( status == SEC_E_OK, "got %#lx\n", status );
+     if (status != SEC_E_OK) goto done;
+ 
++    size = ARRAY_SIZE(user_name);
++    GetUserNameExW( NameSamCompatible, user_name, &size );
++    memset( &names, 0, sizeof(names) );
++    status = QueryContextAttributesW( &server_ctx, SECPKG_ATTR_NAMES, &names );
++    ok( status == SEC_E_OK, "got %#lx\n", status );
++    if (!status)
++    {
++        ok( !wcsicmp( names.sUserName, user_name ), "got %s, expected %s\n", debugstr_w(names.sUserName),
++            debugstr_w(user_name) );
++        FreeContextBuffer( names.sUserName );
++    }
++
+     OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token );
+     GetTokenInformation( token, TokenUser, token_user, sizeof(token_user), &size );
+     CloseHandle( token );
+-- 
+2.43.0
+
