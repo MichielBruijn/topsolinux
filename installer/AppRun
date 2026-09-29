@@ -322,6 +322,13 @@ step_sql()
         [ -f "$SQLDIR/DATA/$f" ] || cp "$SQLDIR/Binn/Templates/$f" "$SQLDIR/DATA/" || return 1
     done
 
+    # a normal start moves the resource database's location in master from Microsoft's build folder to Binn;
+    # it then stops because model is still in the build folder too, which is fine
+    rm -f "$SQLDIR/Log/ERRORLOG"
+    wine_run net start 'MSSQL$SQLTOPSOLID'
+    sql_wait_ready
+    stop_service 'MSSQL$SQLTOPSOLID'
+
     # first start: single user, minimal configuration, only master (the other databases are moved first)
     wine_run reg add 'HKLM\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp' /v Enabled /t REG_DWORD /d 0 /f
     wine_run reg add "$SQLPARAMS" /v SQLArg3 /d -m /f

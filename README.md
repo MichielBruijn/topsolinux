@@ -91,6 +91,10 @@ topsolinux includes a replacement for 3Dconnexion's navigation library that talk
 
 ## Troubleshooting
 
+- **Virtual machines:** TopSolid's 30-day evaluation mode does not start in a virtual machine
+  ("UNLICENSED", protection key "Unavailable"): its license protection refuses virtual machines.
+  With a real license it works. Without a GPU, TopSolid switches off graphics acceleration.
+
 - Logs: `~/.local/share/topsolinux/install.log` (installation) and `topsolid.log` (TopSolid).
 - "Unable to connect to the PDM server" right after starting: wait a minute, the PDM is still starting.
   If it stays, run the `stop` command and start again.
