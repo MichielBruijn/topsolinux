@@ -3,20 +3,21 @@
 Run **TopSolid 7** on Linux, including the local PDM server, with one installer.
 
 topsolinux is a patched [Wine](https://www.winehq.org) plus an installer that sets up TopSolid from
-**your own** TopSolid installation media. It takes care of everything that doesn't work out of the box
+TopSolid's installation media, **your own** copy or downloaded from TopSolid's own server. It takes care of everything that doesn't work out of the box
 under Wine: .NET, SQL Server Express, the local PDM server, the license server and a few Wine bugs.
 
 > topsolinux is an unofficial project. It is not affiliated with or supported by TOPSOLID SAS.
-> You need your own TopSolid installation media and license.
+> You need a TopSolid license (or use TopSolid's evaluation mode).
 
 Tested with TopSolid 7.20 (media 7.20.400.0 RTM, updated to SP6 with TopSolid'Update) on Ubuntu 24.04.
 
 ## What you need
 
 - A 64-bit Linux with glibc 2.38 or newer: Ubuntu 24.04 or newer, Debian 13, Fedora 39 or newer, ...
-- The TopSolid installation media: the folder with `Setup.exe` (unpacked download or DVD)
+- The TopSolid installation media (the folder with `Setup.exe`), or let the installer download it
+  from TopSolid's server (19 GB)
 - A TopSolid license file (`lservrc`), can also be added later
-- About 45 GB of free disk space, and an internet connection during the installation
+- About 45 GB of free disk space (65 GB when downloading the media), and an internet connection during the installation
 - A GPU with a working OpenGL driver (NVIDIA, AMD or Intel)
 
 ## Installing
@@ -25,7 +26,8 @@ Tested with TopSolid 7.20 (media 7.20.400.0 RTM, updated to SP6 with TopSolid'Up
    [releases](../../releases).
 2. Make it executable (file properties, or `chmod +x topsolinux-installer-x86_64.AppImage`) and start it.
 3. Follow the steps:
-   - select the installation media (it is found automatically in your Downloads folder),
+   - choose the installation media on your computer (found automatically in Downloads), or let the
+     installer download TopSolid from TopSolid's own server, the same one `TopSolid.Downloader.exe` uses,
    - select your license file, or skip it,
    - choose whether to also build a TopSolid AppImage (recommended, on by default).
 4. TopSolid's own installer opens. Choose your modules, click Install and accept the license agreement.
@@ -37,7 +39,8 @@ Without a desktop, or to script it:
 
 ```
 ./topsolinux-installer-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
-    [--license lservrc] [--appimage ~/Applications | --no-appimage]
+    [--license lservrc] [--appimage ~/Applications | --no-appimage] [--spacemouse]
+./topsolinux-installer-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again.

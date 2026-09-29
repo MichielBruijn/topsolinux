@@ -9,8 +9,9 @@ by TOPSOLID SAS or Microsoft.
 ## What topsolinux does and does not contain
 
 The installer contains **no** TopSolid, SQL Server or .NET files. TopSolid, SQL Server Express and the
-Sentinel license server are installed from the user's own TopSolid installation media, under the license
-agreements the user accepts in TopSolid's own setup. The .NET Framework and Visual C++ runtimes are
+Sentinel license server are installed from TopSolid's installation media, under the license agreements
+the user accepts in TopSolid's own setup. The media are either the user's own copy or downloaded by the
+user from TopSolid's public download server (the one `TopSolid.Downloader.exe` on the media uses). The .NET Framework and Visual C++ runtimes are
 downloaded from Microsoft by winetricks during the installation.
 
 A TopSolid AppImage made by the installer (the "build an AppImage" option) **does** contain TopSolid,
