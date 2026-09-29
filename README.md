@@ -69,7 +69,7 @@ a small window shows that it is starting.
 
 ## Everyday use
 
-The menu entry (right-click it) and the AppImage (or `~/.local/share/topsolinux/runtime/AppRun`) accept:
+The menu entry (right-click the icon: TopSolid'Update, license tool, Wine settings, stop) and the AppImage (or `~/.local/share/topsolinux/runtime/AppRun`) accept:
 
 | Command | |
 |---|---|

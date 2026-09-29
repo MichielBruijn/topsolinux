@@ -86,12 +86,21 @@ pdm_state()
     "$WINE" sc query "$PDM_SERVICE" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *\([A-Z_]*\).*/\1/p'
 }
 
+# the port of the local PDM server, from its configuration (18080 by default)
+pdm_listening()
+{
+    local conf port
+    conf="$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid'Local Pdm Server Service/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
+    port="$(sed -n 's/.*name="ServerPortNumber"[^>]*>\([0-9]*\)<.*/\1/p' "$conf" 2>/dev/null | head -1)"
+    (exec 3<>"/dev/tcp/127.0.0.1/${port:-18080}") 2>/dev/null
+}
+
 # TopSolid gives up on the local PDM after a while, but its very first start on a new machine can take minutes
 wait_for_pdm()
 {
     local start=$SECONDS state retried=0 notify=""
     "$WINE" wineboot >/dev/null 2>&1
-    [ "$(pdm_state)" = RUNNING ] && return
+    [ "$(pdm_state)" = RUNNING ] && pdm_listening && return
     if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null; then
         zenity --progress --pulsate --no-cancel --auto-close --title=TopSolid \
             --text="Starting SQL Server and the local PDM..." < <(while [ -e "$WINEPREFIX/.pdm-wait" ]; do echo 1; sleep 1; done; echo 100) &
@@ -109,6 +118,9 @@ wait_for_pdm()
         fi
         sleep 2
     done
+    # the service reports running long before the PDM server accepts connections; TopSolid then tries to start
+    # it again and fails ("Unable to start service"). Wait until it listens on its port.
+    while [ "$state" = RUNNING ] && [ $((SECONDS - start)) -lt 900 ] && ! pdm_listening; do sleep 2; done
     msg "local PDM: ${state:-unknown} after $((SECONDS - start))s"
     rm -f "$WINEPREFIX/.pdm-wait"
     [ -n "$notify" ] && wait "$notify" 2>/dev/null
