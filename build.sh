@@ -10,7 +10,8 @@ set -eu
 TOP="$(dirname "$(readlink -f "$0")")"
 BUILD="$TOP/build"
 DIR="$BUILD/AppDir"
-OUT="$TOP/topsolinux-installer-x86_64.AppImage"
+TSL_VERSION="$(cat "$TOP/VERSION")"
+OUT="$TOP/TopSoLinux-Installer-$TSL_VERSION-x86_64.AppImage"
 TOOLS="$DIR/usr/lib/topsolinux"
 mkdir -p "$BUILD"
 
@@ -67,6 +68,7 @@ chmod +x "$TOOLS/appimagetool.AppImage"
 x86_64-w64-mingw32-gcc -O2 -s -o "$TOOLS/unstick.exe" "$TOP/installer/tools/unstick.c"
 cp "$TOP/installer/tools/exeicon.py" "$TOP/installer/tools/fetchmedia.py" "$TOOLS/"
 cp -r "$TOP/installer/data/reg" "$TOP/installer/data/sql" "$DIR/usr/share/topsolinux/"
+cp "$TOP/VERSION" "$DIR/usr/share/topsolinux/VERSION"
 # the Gecko version this Wine expects, so the installer can fetch it beforehand
 strings -el "$DIR/usr/lib/wine/x86_64-windows/appwiz.cpl" | grep -o 'wine-gecko-[0-9.]*-x86_64.msi' | head -1 |
     sed 's/wine-gecko-\(.*\)-x86_64.msi/#define GECKO_VERSION "\1"/' > "$DIR/usr/share/topsolinux/wine-addons"
@@ -78,8 +80,8 @@ ln -s topsolinux.svg "$DIR/.DirIcon"
 cat > "$DIR/topsolinux.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=topsolinux installer
-Comment=Install TopSolid on Linux from your own installation media
+Name=TopSo'Linux Installer
+Comment=Install TopSolid on Linux
 Exec=AppRun
 Icon=topsolinux
 Categories=Utility;

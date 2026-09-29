@@ -1,4 +1,4 @@
-# topsolinux
+# TopSo'Linux
 
 Run **TopSolid 7** on Linux, including the local PDM server, with one installer.
 
@@ -22,28 +22,33 @@ Tested with TopSolid 7.20 (media 7.20.400.0 RTM, updated to SP6 with TopSolid'Up
 
 ## Installing
 
-1. Download `topsolinux-installer-x86_64.AppImage` from the
+1. Download `TopSoLinux-Installer-1.0-x86_64.AppImage` from the
    [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x topsolinux-installer-x86_64.AppImage`) and start it.
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.0-x86_64.AppImage`) and start it.
 3. Follow the steps:
-   - choose the installation media on your computer (found automatically in Downloads), or let the
-     installer download TopSolid from TopSolid's own server, the same one `TopSolid.Downloader.exe` uses,
-   - select your license file, or skip it,
-   - choose whether to also build a TopSolid AppImage (recommended, on by default).
-4. TopSolid's own installer opens. Choose your modules, click Install and accept the license agreement.
-   The automatic installation of SQL Server fails under Wine: click **Cancel**, then OK, close the log
-   window and click Close. topsolinux then installs and repairs SQL Server itself.
+   - use the installation media found on your computer, choose another folder, or let the installer
+     download TopSolid from TopSolid's own server (the one `TopSolid.Downloader.exe` uses),
+   - options: add TopSolid to the app menu with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)
+     (recommended, on by default; Flatpak and Gear Lever are installed when missing) and SpaceMouse support.
+4. TopSolid's own installer opens. Choose your modules (keep *Sentinel RMS License Manager* on the Server
+   tab; *Sentinel Protection Installer* and *TopSolid'Viewer* are not needed), click Install and accept the
+   license agreement. SQL Server's installation fails under Wine: click Cancel (or OK and then Cancel/OK on
+   its errors) and Close. TopSo'Linux installs and sets up SQL Server itself afterwards.
 5. Wait. The whole installation takes 30 to 60 minutes.
+
+The result is always a TopSolid AppImage (`TopSolid-7.20-x86_64.AppImage`). With Gear Lever it is in your app
+menu; without, the installer asks where to save it.
 
 Without a desktop, or to script it:
 
 ```
-./topsolinux-installer-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
-    [--license lservrc] [--appimage ~/Applications | --no-appimage] [--spacemouse]
-./topsolinux-installer-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.0-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+    [--replace] [--gearlever | --appimage-dir ~/Applications] [--spacemouse]
+./TopSoLinux-Installer-1.0-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
-An interrupted installation continues where it stopped when you start the installer again.
+An interrupted installation continues where it stopped when you start the installer again; an existing
+installation can be replaced.
 Everything is installed in `~/.local/share/topsolinux` (set `TOPSOLINUX_HOME` to use another folder).
 
 ### The TopSolid AppImage

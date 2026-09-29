@@ -1,20 +1,24 @@
 #!/bin/bash
-# topsolinux installer: installs TopSolid under a patched Wine, from the user's installation media or from
-# TopSolid's own download server
+# TopSo'Linux installer: installs TopSolid under a patched Wine, from the user's installation media or from
+# TopSolid's own download server, and makes a TopSolid AppImage of it
 #
-# usage: topsolinux-installer.AppImage                      graphical installer
-#        topsolinux-installer.AppImage install --media DIR | --download DIR [--license FILE]
-#                                          [--appimage DIR | --no-appimage] [--spacemouse | --no-spacemouse]
+# usage: TopSoLinux-Installer.AppImage                      graphical installer
+#        TopSoLinux-Installer.AppImage install --media DIR | --download DIR [--replace]
+#                                          [--gearlever | --appimage-dir DIR] [--spacemouse | --no-spacemouse]
 #
 # environment: TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
-# Nothing of TopSolid, SQL Server or .NET is part of this installer: TopSolid, SQL Server Express and the
-# license server come from the installation media, the Microsoft runtimes are downloaded from Microsoft.
+# Nothing of TopSolid, SQL Server or .NET is part of this installer: they come from the installation media.
+# Only the Visual C++ runtime and .NET 4.0 (Microsoft) and the core fonts (SourceForge) are downloaded, by winetricks.
 
 set -u
 HERE="$(dirname "$(readlink -f "$0")")"
 SHARE="$HERE/usr/share/topsolinux"
 TOOLS="$HERE/usr/lib/topsolinux"
+NAME="TopSo'Linux"
+TSL_VERSION="$(cat "$SHARE/VERSION" 2>/dev/null || echo dev)"
+TITLE="$NAME $TSL_VERSION"
+ICON="$HERE/topsolinux.svg"
 DATA="${TOPSOLINUX_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/topsolinux}"
 LOG="$DATA/install.log"
 STATE="$DATA/install.state"
@@ -23,14 +27,15 @@ export WINE="$HERE/usr/bin/wine" WINESERVER="$HERE/usr/bin/wineserver"
 export PATH="$HERE/usr/bin:$TOOLS/bin:$PATH"
 export LD_LIBRARY_PATH="$TOOLS/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export WINEDEBUG=-all WINEDLLOVERRIDES="winemenubuilder.exe=d"
-SQLDIR_WIN='C:\Program Files\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQL'
 SQLDIR="$WINEPREFIX/drive_c/Program Files/Microsoft SQL Server/MSSQL15.SQLTOPSOLID/MSSQL"
 SQLPARAMS='HKLM\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\Parameters'
 OSQL='C:\Program Files\Microsoft SQL Server\150\Tools\Binn\OSQL.EXE'
-LSERVRC='C:\Program Files (x86)\Common Files\Thales\Sentinel RMS License Manager\WinNT\lservrc'
+RMS_PERSISTENCE="$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS Development Kit/System"
+GEARLEVER=it.mijorus.gearlever
 NEED_GB=45
 
-MEDIA="" DOWNLOAD=0 LICENSE="" APPIMAGE_DIR="" BUILD_APPIMAGE=1 SPACEMOUSE=auto GUI=0 PROGRESS="" SPACEMOUSE_NOTE=""
+MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
+APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY=""
 
 # --- user interface -----------------------------------------------------------------------------
 
@@ -38,26 +43,38 @@ log() { echo "$(date '+%T') $*" >> "$LOG"; }
 
 say()
 {
+    LAST_SAY="$*"
     log "$*"
     echo "topsolinux: $*" >&2
+    echo "$*" > "$DATA/.status"
     [ -n "$PROGRESS" ] && echo "# $*" >&"$PROGFD"
 }
+
+# position of the progress bar, 0-100
+percent() { [ -n "$PROGRESS" ] && echo "$1" >&"$PROGFD"; }
 
 fail()
 {
     log "ERROR: $*"
     echo "topsolinux: error: $*" >&2
+    ticker_stop
     [ -n "$PROGRESS" ] && { exec {PROGFD}>&-; wait "$PROGRESS" 2>/dev/null; PROGRESS=""; }
     # Wine's background services keep the AppImage in use; stop them so the installer can be replaced
     "$WINESERVER" -k 2>/dev/null
-    [ $GUI = 1 ] && zenity --error --width=450 --title=topsolinux --text="$*\n\nDetails: $LOG"
+    [ $GUI = 1 ] && zenity --error --width=460 --title="$TITLE" --window-icon="$ICON" \
+        --text="<b>The installation stopped.</b>\n\n$*\n\nStart the installer again to continue where it stopped.\nDetails: $LOG"
     exit 1
 }
 
-info()
+info()  # TEXT [HEADING]
 {
-    if [ $GUI = 1 ]; then zenity --info --width=500 --title=topsolinux --text="$*"
-    else echo "topsolinux: $*" >&2; fi
+    if [ $GUI = 1 ]; then zenity --info --width=520 --title="$TITLE" --window-icon="$ICON" --text="$*"
+    else echo "topsolinux: $*" | sed 's/<[^>]*>//g' >&2; fi
+}
+
+question()  # TEXT OK-LABEL CANCEL-LABEL
+{
+    zenity --question --width=520 --title="$TITLE" --window-icon="$ICON" --ok-label="$2" --cancel-label="$3" --text="$1"
 }
 
 progress_start()
@@ -65,13 +82,32 @@ progress_start()
     [ $GUI = 1 ] || return
     # a descriptor chosen by bash: a fixed one could be the AppImage runtime's keepalive pipe, and closing
     # that unmounts the AppImage
-    exec {PROGFD}> >(zenity --progress --pulsate --no-cancel --auto-close --width=500 --title=topsolinux \
+    exec {PROGFD}> >(zenity --progress --no-cancel --auto-close --width=520 --title="$TITLE" --window-icon="$ICON" \
                   --text="Preparing..." 2>/dev/null)
     PROGRESS=$!
 }
 
+# keep the progress bar moving during long steps: creep towards the start of the next step and show the time
+ticker_start()  # FROM TO
+{
+    [ -n "$PROGRESS" ] || return
+    (
+        local p=$1 t0=$SECONDS e
+        while sleep 5; do
+            e=$((SECONDS - t0))
+            [ $((e % 20)) -lt 5 ] && [ "$p" -lt $(($2 - 1)) ] && p=$((p + 1))
+            echo "$p"
+            printf '# %s   (%d:%02d)\n' "$(cat "$DATA/.status" 2>/dev/null)" $((e / 60)) $((e % 60))
+        done
+    ) >&"$PROGFD" 2>/dev/null &
+    TICKER=$!
+}
+
+ticker_stop() { [ -n "${TICKER:-}" ] && kill "$TICKER" 2>/dev/null; TICKER=""; }
+
 progress_stop()
 {
+    ticker_stop
     [ -n "$PROGRESS" ] || return
     echo 100 >&"$PROGFD"
     exec {PROGFD}>&-
@@ -79,11 +115,32 @@ progress_stop()
     PROGRESS=""
 }
 
+# where each step starts on the progress bar; a download takes the first quarter
+step_percent()
+{
+    local p
+    case "$1" in
+        download) echo 0; return ;;
+        prefix) p=2 ;; runtimes) p=5 ;; setup) p=22 ;; sqlsetup) p=40 ;; extras) p=48 ;; sql) p=52 ;;
+        pdm) p=62 ;; finish) p=70 ;; spacemouse) p=72 ;; appimage) p=74 ;; gearlever) p=94 ;; end) p=100 ;; *) p=0 ;;
+    esac
+    [ $DOWNLOAD = 1 ] && p=$((25 + p * 3 / 4))
+    echo $p
+}
+
 # run a step only once, so that an interrupted installation continues where it stopped
 step()
 {
+    local from to
     grep -qx "$1" "$STATE" 2>/dev/null && return
-    "step_$1" || fail "step '$1' failed"
+    from="$(step_percent "$1")"
+    to="$(step_percent "${2:-end}")"
+    [ "$to" -gt "$from" ] || to=100
+    percent "$from"
+    # the download reports its own progress
+    [ "$1" = download ] || ticker_start "$from" "$to"
+    "step_$1" || fail "${LAST_SAY:-Step $1 failed.}"
+    ticker_stop
     echo "$1" >> "$STATE"
 }
 
@@ -129,132 +186,6 @@ find_version()
     PDM_SERVICE="TopSolid'Local Pdm Server $VERSION"
 }
 
-# --- installation steps --------------------------------------------------------------------------
-
-# the same public server and file list as TopSolid.Downloader.exe on the installation media
-step_download()
-{
-    say "Downloading TopSolid $(python3 "$TOOLS/fetchmedia.py" "$MEDIA" --version-only) to $MEDIA (19 GB)"
-    python3 "$TOOLS/fetchmedia.py" "$MEDIA" 2>>"$LOG" | while IFS= read -r line; do
-        case "$line" in "#"*) [ -n "$PROGRESS" ] && echo "$line" >&"$PROGFD" || echo "$line" >&2 ;; esac
-    done
-    [ "${PIPESTATUS[0]}" = 0 ] && check_media "$MEDIA"
-}
-
-# Wine links the Windows desktop to the Linux one; TopSolid's setup would then put .lnk files there
-unlink_desktop()
-{
-    local d="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/Desktop" target
-    [ -L "$d" ] || return 0
-    target="$(readlink -f "$d")"
-    rm -f "$target"/TopSolid*.lnk "$target"/"SQL Server"*.lnk 2>/dev/null
-    rm -f "$d" && mkdir -p "$d"
-}
-
-step_prefix()
-{
-    say "Creating the Wine environment"
-    # Wine installs Gecko (for embedded web pages) without asking when it is in its download cache;
-    # Mono is not needed, winetricks installs Microsoft's .NET Framework
-    local cache="${XDG_CACHE_HOME:-$HOME/.cache}/wine" arch v
-    v="$(sed -n 's/.*GECKO_VERSION *"\([0-9.]*\)".*/\1/p' "$SHARE/wine-addons" 2>/dev/null)"
-    mkdir -p "$cache"
-    for arch in x86 x86_64; do
-        [ -n "$v" ] && [ ! -f "$cache/wine-gecko-$v-$arch.msi" ] &&
-            wget -q -O "$cache/wine-gecko-$v-$arch.msi" "https://dl.winehq.org/wine/wine-gecko/$v/wine-gecko-$v-$arch.msi"
-    done
-    WINEDLLOVERRIDES="$WINEDLLOVERRIDES;mscoree=" wine_run wineboot -i
-    unlink_desktop
-    # installers of Microsoft's runtimes crash in helper tools (e.g. ServiceModelReg.exe); without this,
-    # Wine's crash dialog stops the installation until someone closes it
-    wine_run reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f
-    "$WINESERVER" -w
-    [ -f "$WINEPREFIX/system.reg" ]
-}
-
-step_runtimes()
-{
-    local cache="${XDG_CACHE_HOME:-$HOME/.cache}/winetricks" f
-    # use the installation media where it has the exact file winetricks expects
-    for f in "$MEDIA"/Setup/Redist/dotnet/dotnetfx35-SP1.exe; do
-        [ -f "$f" ] || continue
-        if [ "$(sha256sum < "$f" | cut -d' ' -f1)" = 0582515bde321e072f8673e829e175ed2e7a53e803127c50253af76528e66bc1 ]; then
-            mkdir -p "$cache/dotnet35sp1"
-            [ -f "$cache/dotnet35sp1/dotnetfx35.exe" ] || cp "$f" "$cache/dotnet35sp1/dotnetfx35.exe"
-        fi
-    done
-    say "Installing fonts, Visual C++ and .NET Framework 4.8 (downloaded from Microsoft, takes a while)"
-    WINETRICKS_LATEST_VERSION_CHECK=disabled winetricks --unattended corefonts vcrun2019 dotnet48 >> "$LOG" 2>&1 || return 1
-    # SQL Server's CLR Types need .NET 3.5 before TopSolid's setup runs
-    say "Installing .NET Framework 3.5"
-    WINETRICKS_LATEST_VERSION_CHECK=disabled winetricks --unattended dotnet35sp1 >> "$LOG" 2>&1 || return 1
-    wine_run winecfg /v win10
-    "$WINESERVER" -w
-}
-
-step_setup()
-{
-    progress_stop
-    info "TopSolid's own installer opens now.\n\n• Choose the modules you are licensed for, click Install and accept the license agreement.\n• The automatic installation of SQL Server fails under Wine. Click <b>Cancel</b>, then OK, close the log window and click Close: topsolinux installs and repairs SQL Server itself.\n• Do not install drivers or Windows-only extras (Heidenhain, SpaceMouse drivers, ...)."
-    log "running $MEDIA/Setup.exe"
-    (cd "$MEDIA" && "$WINE" Setup.exe >> "$LOG" 2>&1)
-    # the bootstrapper may leave msiexec or the SQL setup running for a moment
-    local i
-    for i in $(seq 60); do
-        pgrep -u "$(id -u)" -f -i 'msiexec|SQL Server Express.SETUP|SETUP.EXE' >/dev/null || break
-        sleep 5
-    done
-    progress_start
-    find_version || { say "TopSolid was not installed"; return 1; }
-    say "TopSolid $VERSION installed"
-}
-
-# TopSolid's setup starts SQL Server's setup with update checking, which fails right away under Wine (no Windows
-# Update). Run it again the same way without that; it then gets as far as installing SQL Server and fails only in
-# the final configuration (WMI), which step_sql finishes.
-step_sqlsetup()
-{
-    local setup="$MEDIA/Setup/Redist/SQL Server Express/SETUP.EXE"
-    [ -f "$SQLDIR/Binn/sqlservr.exe" ] && return 0
-    [ -f "$setup" ] || { say "SQL Server Express is not on the installation media"; return 1; }
-    say "Installing SQL Server Express from the installation media (a few minutes)"
-    (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
-        /UPDATEENABLED=False /IACCEPTSQLSERVERLICENSETERMS /SUPPRESSPRIVACYSTATEMENTNOTICE \
-        "/SQLSVCACCOUNT=NT AUTHORITY\NETWORK SERVICE" "/SQLSYSADMINACCOUNTS=BUILTIN\Administrators" \
-        /TCPENABLED=1 /NPENABLED=1 /SQLCOLLATION=SQL_Latin1_General_CP1_CI_AS /BROWSERSVCSTARTUPTYPE=Disabled >> "$LOG" 2>&1)
-    # the setup engine keeps running for a while after SETUP.EXE has returned
-    local i
-    for i in $(seq 240); do
-        pgrep -u "$(id -u)" -f -i 'ScenarioEngine|SQL Server Express.SETUP' >/dev/null || break
-        sleep 5
-    done
-    [ -f "$SQLDIR/Binn/sqlservr.exe" ]
-}
-
-step_extras()
-{
-    local m
-    # after a failing SQL Server setup the bootstrapper skips the rest
-    if [ ! -f "$WINEPREFIX/drive_c/Program Files (x86)/Common Files/Thales/Sentinel RMS License Manager/WinNT/lservnt.exe" ]; then
-        m="$(ls "$MEDIA"/Setup/Redist/Sentinel\ RMS\ License\ Manager/*.msi 2>/dev/null | head -1)"
-        [ -n "$m" ] && { say "Installing the Sentinel RMS license server"; wine_run msiexec /i "$(winpath "$m")" /qn; }
-    fi
-    # the license server's MSI sets up Sentinel RMS's persistence, which TopSolid's 30-day evaluation needs on its
-    # very first start; it is sometimes missing afterwards, a repair of the MSI creates it
-    m="$(ls "$MEDIA"/Setup/Redist/Sentinel\ RMS\ License\ Manager/*.msi 2>/dev/null | head -1)"
-    if [ -n "$m" ] && [ ! -d "$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS Development Kit/System" ]; then
-        say "Repairing the Sentinel RMS license server"
-        wine_run msiexec /fa "$(winpath "$m")" /qn
-        [ -d "$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS Development Kit/System" ] ||
-            { say "Sentinel RMS could not be set up (needed for the evaluation mode)"; return 1; }
-    fi
-    if [ ! -f "$WINEPREFIX/drive_c/Program Files/TOPSOLID/TopSolid Update/bin/TopSolid.Update.exe" ]; then
-        m="$(ls "$MEDIA"/Setup/x64/TopSolid\'Update\ x64.msi 2>/dev/null | head -1)"
-        [ -n "$m" ] && { say "Installing TopSolid'Update"; wine_run msiexec /i "$(winpath "$m")" /qn; }
-    fi
-    return 0
-}
-
 service_exists() { "$WINE" sc query "$1" 2>/dev/null | grep -q STATE; }
 
 service_state() { "$WINE" sc query "$1" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *\([A-Z_]*\).*/\1/p'; }
@@ -278,6 +209,163 @@ stop_sql()
     stop_service 'MSSQL$SQLTOPSOLID'
 }
 
+stop_services()
+{
+    find_version && wine_run net stop "$PDM_SERVICE"
+    wine_run net stop 'MSSQL$SQLTOPSOLID'
+    wine_run net stop "Sentinel RMS License Manager"
+    "$WINESERVER" -k 2>/dev/null
+    "$WINESERVER" -w 2>/dev/null
+}
+
+# --- installation steps --------------------------------------------------------------------------
+
+# the same public server and file list as TopSolid.Downloader.exe on the installation media
+step_download()
+{
+    say "Downloading TopSolid from TopSolid's server"
+    python3 "$TOOLS/fetchmedia.py" "$MEDIA" 2>>"$LOG" | while IFS= read -r line; do
+        case "$line" in
+            "#"*) [ -n "$PROGRESS" ] && echo "$line" >&"$PROGFD" || echo "$line" >&2 ;;
+            [0-9]*) percent $((line / 4)) ;;
+        esac
+    done
+    [ "${PIPESTATUS[0]}" = 0 ] || { say "Downloading TopSolid failed"; return 1; }
+    check_media "$MEDIA"
+}
+
+# Wine links the Windows desktop to the Linux one; TopSolid's setup would then put .lnk files there
+unlink_desktop()
+{
+    local d="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/Desktop" target
+    [ -L "$d" ] || return 0
+    target="$(readlink -f "$d")"
+    rm -f "$target"/TopSolid*.lnk "$target"/"SQL Server"*.lnk 2>/dev/null
+    rm -f "$d" && mkdir -p "$d"
+}
+
+step_prefix()
+{
+    say "Preparing the Windows environment"
+    # Wine installs Gecko (for embedded web pages) without asking when it is in its download cache;
+    # Mono is not needed, .NET comes from the installation media
+    local cache="${XDG_CACHE_HOME:-$HOME/.cache}/wine" arch v
+    v="$(sed -n 's/.*GECKO_VERSION *"\([0-9.]*\)".*/\1/p' "$SHARE/wine-addons" 2>/dev/null)"
+    mkdir -p "$cache"
+    for arch in x86 x86_64; do
+        [ -n "$v" ] && [ ! -f "$cache/wine-gecko-$v-$arch.msi" ] &&
+            wget -q -O "$cache/wine-gecko-$v-$arch.msi" "https://dl.winehq.org/wine/wine-gecko/$v/wine-gecko-$v-$arch.msi"
+    done
+    WINEDLLOVERRIDES="$WINEDLLOVERRIDES;mscoree=" wine_run wineboot -i
+    unlink_desktop
+    # no Windows file associations or menu entries on the Linux desktop, also when an installer (or winetricks)
+    # replaces WINEDLLOVERRIDES
+    wine_run reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /d "" /f
+    # installers of Microsoft's runtimes crash in helper tools (e.g. ServiceModelReg.exe); without this,
+    # Wine's crash dialog stops the installation until someone closes it
+    wine_run reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f
+    "$WINESERVER" -w
+    [ -f "$WINEPREFIX/system.reg" ]
+}
+
+winetricks_run() { WINETRICKS_LATEST_VERSION_CHECK=disabled winetricks --unattended "$@" >> "$LOG" 2>&1; }
+
+step_runtimes()
+{
+    local cache="${XDG_CACHE_HOME:-$HOME/.cache}/winetricks" ndp="$MEDIA/Setup/Redist/dotnet/NDP48-x86-x64-AllOS-ENU.exe"
+    local sp1="$MEDIA/Setup/Redist/dotnet/dotnetfx35-SP1.exe"
+    # .NET 4.0 is only needed for its mscoree.dll, which the .NET 4.8 installer expects Windows to have
+    say "Installing fonts, Visual C++ and .NET 4.0 (small downloads from Microsoft)"
+    winetricks_run corefonts vcrun2019 dotnet40 || { say "Installing fonts, Visual C++ and .NET 4.0 failed"; return 1; }
+    percent "$(( $(step_percent runtimes) + 4 ))"
+
+    say "Installing .NET Framework 4.8 from the installation media"
+    if [ -f "$ndp" ]; then
+        wine_run winecfg /v win7
+        WINEDLLOVERRIDES="$WINEDLLOVERRIDES;fusion=b" wine_run "$(winpath "$ndp")" /q /norestart
+        "$WINESERVER" -w
+        wine_run reg add 'HKCU\Software\Wine\DllOverrides' /v mscoree /d native /f
+    else
+        winetricks_run dotnet48
+    fi
+    "$WINE" reg query 'HKLM\Software\Microsoft\NET Framework Setup\NDP\v4\Full' /v Release 2>/dev/null | grep -q Release ||
+        { say "Installing .NET Framework 4.8 failed"; return 1; }
+    percent "$(( $(step_percent runtimes) + 10 ))"
+
+    # SQL Server's CLR Types need .NET 3.5 before TopSolid's setup runs; winetricks takes the media's copy
+    say "Installing .NET Framework 3.5 from the installation media"
+    if [ -f "$sp1" ] && [ "$(sha256sum < "$sp1" | cut -d' ' -f1)" = 0582515bde321e072f8673e829e175ed2e7a53e803127c50253af76528e66bc1 ]; then
+        mkdir -p "$cache/dotnet35sp1"
+        [ -f "$cache/dotnet35sp1/dotnetfx35.exe" ] || cp "$sp1" "$cache/dotnet35sp1/dotnetfx35.exe"
+    fi
+    winetricks_run dotnet35sp1 || { say "Installing .NET Framework 3.5 failed"; return 1; }
+    wine_run winecfg /v win10
+    "$WINESERVER" -w
+}
+
+step_setup()
+{
+    progress_stop
+    info "<b>Now TopSolid's own installer opens.</b>\n\n1. Choose the modules you use. On the <i>Server</i> tab keep <b>Sentinel RMS License Manager</b> checked; <i>Sentinel Protection Installer</i> and <i>TopSolid'Viewer</i> (on <i>Tools</i>) are not needed.\n2. Click <b>Install</b> and accept the license agreement.\n3. The automatic installation of SQL Server fails under Wine. That is expected: click <b>Cancel</b>, then <b>OK</b>, close the log window and click <b>Close</b>.\n\n$NAME installs and sets up SQL Server itself afterwards."
+    log "running $MEDIA/Setup.exe"
+    (cd "$MEDIA" && "$WINE" Setup.exe >> "$LOG" 2>&1)
+    # the bootstrapper may leave msiexec or the SQL setup running for a moment
+    local i
+    for i in $(seq 60); do
+        pgrep -u "$(id -u)" -f -i 'msiexec|SQL Server Express.SETUP|SETUP.EXE' >/dev/null || break
+        sleep 5
+    done
+    progress_start
+    percent "$(step_percent sqlsetup)"
+    ticker_start "$(step_percent sqlsetup)" "$(step_percent extras)"
+    find_version || { say "TopSolid's setup was closed before TopSolid was installed."; return 1; }
+    say "TopSolid $VERSION installed"
+}
+
+# TopSolid's setup starts SQL Server's setup with update checking, which fails right away under Wine (no Windows
+# Update). Run it again the same way without that; it then gets as far as installing SQL Server and fails only in
+# the final configuration (WMI), which step_sql finishes.
+step_sqlsetup()
+{
+    local setup="$MEDIA/Setup/Redist/SQL Server Express/SETUP.EXE"
+    [ -f "$SQLDIR/Binn/sqlservr.exe" ] && return 0
+    [ -f "$setup" ] || { say "SQL Server Express is not on the installation media"; return 1; }
+    say "Installing SQL Server Express from the installation media"
+    (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
+        /UPDATEENABLED=False /IACCEPTSQLSERVERLICENSETERMS /SUPPRESSPRIVACYSTATEMENTNOTICE \
+        "/SQLSVCACCOUNT=NT AUTHORITY\NETWORK SERVICE" "/SQLSYSADMINACCOUNTS=BUILTIN\Administrators" \
+        /TCPENABLED=1 /NPENABLED=1 /SQLCOLLATION=SQL_Latin1_General_CP1_CI_AS /BROWSERSVCSTARTUPTYPE=Disabled >> "$LOG" 2>&1)
+    # the setup engine keeps running for a while after SETUP.EXE has returned
+    local i
+    for i in $(seq 240); do
+        pgrep -u "$(id -u)" -f -i 'ScenarioEngine|SQL Server Express.SETUP' >/dev/null || break
+        sleep 5
+    done
+    [ -f "$SQLDIR/Binn/sqlservr.exe" ] || { say "SQL Server Express could not be installed"; return 1; }
+}
+
+step_extras()
+{
+    local m
+    m="$(ls "$MEDIA"/Setup/Redist/Sentinel\ RMS\ License\ Manager/*.msi 2>/dev/null | head -1)"
+    # after a failing SQL Server setup the bootstrapper skips the rest
+    if [ ! -f "$WINEPREFIX/drive_c/Program Files (x86)/Common Files/Thales/Sentinel RMS License Manager/WinNT/lservnt.exe" ]; then
+        [ -n "$m" ] && { say "Installing the license server"; wine_run msiexec /i "$(winpath "$m")" /qn; }
+    fi
+    # the license server's MSI sets up Sentinel RMS's persistence, which TopSolid's 30-day evaluation needs on its
+    # very first start; it is sometimes missing afterwards, a repair of the MSI creates it
+    if [ -n "$m" ] && [ ! -d "$RMS_PERSISTENCE" ]; then
+        say "Repairing the license server"
+        wine_run msiexec /fa "$(winpath "$m")" /qn
+        [ -d "$RMS_PERSISTENCE" ] || { say "The license server could not be set up"; return 1; }
+    fi
+    if [ ! -f "$WINEPREFIX/drive_c/Program Files/TOPSOLID/TopSolid Update/bin/TopSolid.Update.exe" ]; then
+        m="$(ls "$MEDIA"/Setup/x64/TopSolid\'Update\ x64.msi 2>/dev/null | head -1)"
+        [ -n "$m" ] && { say "Installing TopSolid'Update"; wine_run msiexec /i "$(winpath "$m")" /qn; }
+    fi
+    return 0
+}
+
 sql_healthy()
 {
     local i
@@ -298,17 +386,15 @@ sql_healthy()
 # registry, system databases from the templates, their file locations and a login for the Windows admin group.
 step_sql()
 {
-    say "Checking SQL Server"
-    [ -f "$SQLDIR/Binn/sqlservr.exe" ] || { say "SQL Server Express was not installed by TopSolid's setup"; return 1; }
+    say "Setting up SQL Server"
+    [ -f "$SQLDIR/Binn/sqlservr.exe" ] || { say "SQL Server Express is not installed"; return 1; }
     # leftovers of an interrupted configuration
     local f
     for f in 3 4 5; do wine_run reg delete "$SQLPARAMS" /v SQLArg$f /f; done
     rm -f "$SQLDIR/Log/ERRORLOG"
-    # only test an instance that was configured before: a normal start of the unconfigured instance fails and
-    # leaves master in a state in which the configuration below fails too
-    if [ -f "$SQLDIR/DATA/.topsolinux" ] && sql_healthy; then say "SQL Server works"; return 0; fi
+    # only test an instance that was configured before: the unconfigured one cannot start
+    if [ -f "$SQLDIR/DATA/.topsolinux" ] && sql_healthy; then return 0; fi
 
-    say "Configuring SQL Server"
     stop_sql
     reg_import "$SHARE/reg/sql-instance.reg"
     reg_import "$SHARE/reg/services.reg"
@@ -329,7 +415,7 @@ step_sql()
     sql_wait_ready
     stop_service 'MSSQL$SQLTOPSOLID'
 
-    # first start: single user, minimal configuration, only master (the other databases are moved first)
+    # single user, minimal configuration, only master: move the other system databases and add the admin login
     wine_run reg add 'HKLM\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp' /v Enabled /t REG_DWORD /d 0 /f
     wine_run reg add "$SQLPARAMS" /v SQLArg3 /d -m /f
     wine_run reg add "$SQLPARAMS" /v SQLArg4 /d -f /f
@@ -341,17 +427,16 @@ step_sql()
     local out
     out="$(sql_query -n -i 'C:\firstconfig.sql'; sql_query -n -i 'C:\logins.sql')"
     echo "$out" >> "$LOG"
-    if echo "$out" | grep -q "^Msg "; then say "Configuring SQL Server's databases failed"; return 1; fi
     rm -f "$WINEPREFIX/drive_c/firstconfig.sql" "$WINEPREFIX/drive_c/logins.sql"
+    if echo "$out" | grep -q "^Msg "; then say "Setting up SQL Server's databases failed"; return 1; fi
     stop_service 'MSSQL$SQLTOPSOLID'
     for f in 3 4 5; do wine_run reg delete "$SQLPARAMS" /v SQLArg$f /f; done
 
     # normal start: TCP on port 14330 (the PDM uses it), automatic start
     reg_import "$SHARE/reg/tweaks.reg"
     rm -f "$SQLDIR/Log/ERRORLOG"
-    sql_healthy || { say "SQL Server does not work after configuring it"; return 1; }
+    sql_healthy || { say "SQL Server does not work after setting it up"; return 1; }
     touch "$SQLDIR/DATA/.topsolinux"
-    say "SQL Server works"
 }
 
 # The local PDM refuses its first start unless TopSolid's PDM server admin tool is running
@@ -360,13 +445,13 @@ step_pdm()
     local i state
     find_version || return 1
     reg_import "$SHARE/reg/tweaks.reg"
-    say "First start of the local PDM server (takes a few minutes)"
+    say "First start of the local PDM server"
     wine_run net stop "$PDM_SERVICE"
     (cd "$TSBIN" && "$WINE" TopSolid.Pdm.ServerServiceAdmin.exe >> "$LOG" 2>&1 &)
     sleep 15
     wine_run net start "$PDM_SERVICE"
     for i in $(seq 150); do
-        state="$("$WINE" sc query "$PDM_SERVICE" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *\([A-Z_]*\).*/\1/p')"
+        state="$(service_state "$PDM_SERVICE")"
         [ "$state" = RUNNING ] && break
         sleep 2
     done
@@ -378,63 +463,12 @@ step_pdm()
 step_finish()
 {
     find_version || return 1
-    say "Finishing"
-    if [ -n "$LICENSE" ]; then
-        cp "$LICENSE" "$("$WINE" winepath -u "$LSERVRC" 2>/dev/null)" && log "license installed"
-    fi
-    python3 "$TOOLS/exeicon.py" "$TSBIN/TopSolid.exe" "$DATA/topsolid.png" >> "$LOG" 2>&1
-
-    # the starter with its own copy of this Wine, so the installer is not needed any more
-    rm -rf "$DATA/runtime"
-    mkdir -p "$DATA/runtime/usr/lib"
-    cp -a "$HERE/usr/bin" "$HERE/usr/share" "$DATA/runtime/usr/"
-    cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$DATA/runtime/usr/lib/"
-    mkdir -p "$DATA/runtime/usr/lib/topsolinux"
-    cp "$TOOLS/unstick.exe" "$DATA/runtime/usr/lib/topsolinux/"
-    rm -rf "$DATA/runtime/usr/share/topsolinux"
-    cp "$HERE/topsolinux-run" "$DATA/runtime/AppRun"
+    say "Finishing the installation"
+    python3 "$TOOLS/exeicon.py" "$TSBIN/TopSolid.exe" "$DATA/topsolid.png" >> "$LOG" 2>&1 || cp "$ICON" "$DATA/topsolid.svg"
     touch "$WINEPREFIX/.topsolinux"
     unlink_desktop
     wine_run reg delete 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /f
-
     stop_services
-}
-
-stop_services()
-{
-    find_version && wine_run net stop "$PDM_SERVICE"
-    wine_run net stop 'MSSQL$SQLTOPSOLID'
-    wine_run net stop "Sentinel RMS License Manager"
-    "$WINESERVER" -k 2>/dev/null
-    "$WINESERVER" -w 2>/dev/null
-}
-
-desktop_file()  # EXEC ICON
-{
-    cat <<EOF
-[Desktop Entry]
-Type=Application
-Name=TopSolid $VERSION
-Comment=TopSolid $VERSION with local PDM (topsolinux, Wine)
-Exec=$1
-Icon=$2
-Categories=Graphics;Engineering;
-Terminal=false
-StartupWMClass=topsolid.exe
-Actions=update;license;stop;
-
-[Desktop Action update]
-Name=TopSolid'Update
-Exec=$1 update
-
-[Desktop Action license]
-Name=TopSolid license
-Exec=$1 license-tool
-
-[Desktop Action stop]
-Name=Stop background services
-Exec=$1 stop
-EOF
 }
 
 # 3Dconnexion devices: vendor 256f, or Logitech's old 046d:c6xx
@@ -448,34 +482,56 @@ spacemouse_present()
     return 1
 }
 
+# the command that installs a distribution package, run as root
+package_install_command()
+{
+    if command -v apt-get >/dev/null; then echo "apt-get install -y $*"
+    elif command -v dnf >/dev/null; then echo "dnf install -y $*"
+    elif command -v zypper >/dev/null; then echo "zypper --non-interactive install $*"
+    elif command -v pacman >/dev/null; then echo "pacman -S --noconfirm $*"
+    fi
+}
+
 # TopSolid's SpaceMouse support goes through spacenavd (see tdxnavlib in wine/patches)
 step_spacemouse()
 {
     local cmd
-    if command -v spacenavd >/dev/null || [ -x /usr/sbin/spacenavd ] || [ -x /usr/bin/spacenavd ]; then
-        say "spacenavd is already installed"
-        return 0
-    fi
-    if command -v apt-get >/dev/null; then cmd="apt-get install -y spacenavd"
-    elif command -v dnf >/dev/null; then cmd="dnf install -y spacenavd"
-    elif command -v zypper >/dev/null; then cmd="zypper --non-interactive install spacenavd"
-    elif command -v pacman >/dev/null; then cmd="pacman -S --noconfirm spacenavd"
-    fi
-    if [ -n "${cmd:-}" ] && command -v pkexec >/dev/null; then
-        say "Installing spacenavd for the SpaceMouse (asks for your password)"
+    command -v spacenavd >/dev/null || [ -x /usr/sbin/spacenavd ] || [ -x /usr/bin/spacenavd ] && return 0
+    cmd="$(package_install_command spacenavd)"
+    if [ -n "$cmd" ] && command -v pkexec >/dev/null; then
+        say "Installing SpaceMouse support (asks for your password)"
         pkexec sh -c "$cmd && systemctl enable --now spacenavd" >> "$LOG" 2>&1 && return 0
     fi
-    SPACEMOUSE_NOTE="\n\nSpaceMouse: install and start spacenavd yourself (e.g. sudo apt install spacenavd)."
+    NOTES="$NOTES\n• SpaceMouse: install and start spacenavd yourself (for example <tt>sudo apt install spacenavd</tt>)."
     return 0
 }
 
-step_menu()
+desktop_file()
 {
-    local apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-    find_version || return 1
-    mkdir -p "$apps"
-    desktop_file "\"$DATA/runtime/AppRun\"" "$DATA/topsolid.png" > "$apps/topsolinux.desktop"
-    say "Menu entry created"
+    cat <<EOF
+[Desktop Entry]
+Type=Application
+Name=TopSolid $VERSION
+Comment=TopSolid $VERSION with its local PDM ($NAME)
+Exec=AppRun
+Icon=topsolid
+Categories=Graphics;Engineering;
+Terminal=false
+StartupWMClass=topsolid.exe
+Actions=update;license;stop;
+
+[Desktop Action update]
+Name=TopSolid'Update
+Exec=AppRun update
+
+[Desktop Action license]
+Name=TopSolid license
+Exec=AppRun license-tool
+
+[Desktop Action stop]
+Name=Stop background services
+Exec=AppRun stop
+EOF
 }
 
 # A self-contained AppImage of this installation, e.g. for colleagues with the same license.
@@ -487,22 +543,25 @@ step_appimage()
     local dir="$build/AppDir"
     find_version || return 1
     out="$APPIMAGE_DIR/TopSolid-$VERSION-x86_64.AppImage"
-    say "Building $out (takes 10-20 minutes)"
+    say "Making the TopSolid AppImage (10-20 minutes)"
     stop_services
     rm -rf "$build"
-    mkdir -p "$dir"
-    cp -al "$DATA/runtime/usr" "$dir/usr"
-    cp "$DATA/runtime/AppRun" "$dir/AppRun"
-    cp "$DATA/topsolid.png" "$dir/topsolid.png"
-    ln -s topsolid.png "$dir/.DirIcon"
-    desktop_file AppRun topsolid > "$dir/topsolid.desktop"
+    mkdir -p "$dir/usr/lib/topsolinux"
+    cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
+    cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
+    rm -rf "$dir/usr/share/topsolinux"
+    cp "$TOOLS/unstick.exe" "$dir/usr/lib/topsolinux/"
+    cp "$HERE/topsolinux-run" "$dir/AppRun"
+    if [ -f "$DATA/topsolid.png" ]; then cp "$DATA/topsolid.png" "$dir/topsolid.png"; ln -s topsolid.png "$dir/.DirIcon"
+    else cp "$ICON" "$dir/topsolid.svg"; ln -s topsolid.svg "$dir/.DirIcon"; fi
+    desktop_file > "$dir/topsolid.desktop"
     cp -al "$WINEPREFIX" "$dir/prefix"
 
     local p="$dir/prefix" c
     c="$p/drive_c"
     user="$(ls "$c/users" | grep -v -x -e Public | head -1)"
     rm -f "$p/.topsolinux" "$p/.pdm-wait"
-    rm -rf "$p/drive_c/Program Files/Microsoft SQL Server/MSSQL15.SQLTOPSOLID/MSSQL/Log/"*
+    rm -rf "$c/Program Files/Microsoft SQL Server/MSSQL15.SQLTOPSOLID/MSSQL/Log/"*
     rm -rf "$c/users/$user/AppData/Local/Temp/"* "$c/windows/temp/"*
     rm -rf "$c/Program Files/Microsoft SQL Server/150/Setup Bootstrap/Log"
     rm -rf "$c/ProgramData/TOPSOLID/TopSolid'Update/Downloads"
@@ -521,13 +580,41 @@ step_appimage()
 
     mkdir -p "$APPIMAGE_DIR"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
-        --runtime-file "$TOOLS/runtime-x86_64" "$dir" "$out.part" >> "$LOG" 2>&1 || return 1
+        --runtime-file "$TOOLS/runtime-x86_64" "$dir" "$out.part" >> "$LOG" 2>&1 || { say "Making the AppImage failed"; return 1; }
     mv "$out.part" "$out"
     rm -rf "$build"
-    # the AppImage uses the same data folder, so on this machine it starts without copying anything
-    rm -rf "$DATA/runtime"
     APPIMAGE_OUT="$out"
-    say "AppImage ready"
+    echo "$out" > "$DATA/appimage.path"
+}
+
+gearlever_installed() { flatpak info "$GEARLEVER" >/dev/null 2>&1; }
+
+# Gear Lever puts the AppImage in its folder and adds it to the app menu; installed from Flathub when missing
+step_gearlever()
+{
+    local cmd out
+    [ -n "$APPIMAGE_OUT" ] || APPIMAGE_OUT="$(cat "$DATA/appimage.path" 2>/dev/null)"
+    if ! gearlever_installed; then
+        say "Installing Gear Lever (asks for your password if Flatpak is missing)"
+        if ! command -v flatpak >/dev/null; then
+            cmd="$(package_install_command flatpak)"
+            [ -n "$cmd" ] && command -v pkexec >/dev/null && pkexec sh -c "$cmd" >> "$LOG" 2>&1
+        fi
+        if command -v flatpak >/dev/null; then
+            flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> "$LOG" 2>&1
+            flatpak install --user -y --noninteractive flathub "$GEARLEVER" >> "$LOG" 2>&1
+        fi
+    fi
+    if gearlever_installed; then
+        say "Adding TopSolid to the app menu with Gear Lever"
+        out="$(flatpak run "$GEARLEVER" --integrate "$APPIMAGE_OUT" -y 2>&1)"
+        echo "$out" >> "$LOG"
+        INTEGRATED="$(echo "$out" | sed -n 's/^\(\/.*\) was integrated successfully.*/\1/p' | tail -1)"
+    fi
+    if [ -z "$INTEGRATED" ]; then
+        NOTES="$NOTES\n• Gear Lever could not add TopSolid to the app menu; open the AppImage with Gear Lever yourself."
+    fi
+    return 0
 }
 
 # --- checks and questions ------------------------------------------------------------------------
@@ -548,129 +635,166 @@ find_media()
 check_system()
 {
     local free
-    mkdir -p "$DATA" || fail "cannot create $DATA"
+    mkdir -p "$DATA" || fail "Cannot create $DATA."
     free=$(df -Pk "$DATA" | awk 'NR==2 {print int($4/1024/1024)}')
-    [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free in $DATA, $NEED_GB GB needed."
-    command -v python3 >/dev/null || fail "python3 is needed"
+    [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free, $NEED_GB GB needed."
+    command -v python3 >/dev/null || fail "python3 is needed."
     ldd --version 2>/dev/null | head -1 | awk '{v=$NF; split(v,a,"."); exit !(a[1]>2 || (a[1]==2 && a[2]>=38))}' ||
-        fail "This Wine needs glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 or newer)."
+        fail "This Linux is too old: glibc 2.38 or newer is needed (Ubuntu 24.04, Debian 13, Fedora 39 or newer)."
     # Wine's NTLM needs Samba's ntlm_auth; a copy is included for systems without it
     ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"
 }
 
+# stop what runs in an earlier installation and remove it
+remove_installation()
+{
+    [ -d "$WINEPREFIX" ] && "$WINESERVER" -k 2>/dev/null
+    rm -rf "$WINEPREFIX" "$STATE" "$DATA/appimage-build" "$DATA/appimage.path" "$DATA/topsolid.png"
+}
+
+# an existing or interrupted installation: replace, continue or stop
+check_existing()
+{
+    [ -f "$STATE" ] || [ -d "$WINEPREFIX" ] || return 0
+    if grep -qx finish "$STATE" 2>/dev/null; then
+        if [ $REPLACE = 0 ]; then
+            [ $GUI = 1 ] || { echo "TopSolid is already installed in $DATA; use --replace to install it again" >&2; exit 1; }
+            question "<b>TopSolid is already installed with $NAME.</b>\n\nReplace it with a new installation? The TopSolid installation, its local PDM and the projects in it are removed." \
+                "Replace" "Cancel" || exit 0
+        fi
+        remove_installation
+    elif [ $GUI = 1 ] && [ $REPLACE = 0 ]; then
+        question "<b>An earlier installation was interrupted.</b>\n\nContinue where it stopped, or start again from the beginning?" \
+            "Continue" "Start again" || remove_installation
+    elif [ $REPLACE = 1 ]; then
+        remove_installation
+    fi
+}
+
 ask()
 {
-    zenity --question --width=520 --title=topsolinux --ok-label=Continue --cancel-label=Cancel \
-        --text="<b>topsolinux</b> installs TopSolid on Linux, with its local PDM server.\n\nYou need:\n• the TopSolid installation media (the folder with Setup.exe), or let topsolinux download it from TopSolid's server\n• a TopSolid license, or use TopSolid's evaluation mode (a license can be added later)\n• about $NEED_GB GB of free disk space (20 GB more for the download) and an internet connection\n\ntopsolinux is an unofficial project and not affiliated with TOPSOLID SAS." || exit 0
+    question "<big><b>Install TopSolid on Linux</b></big>\n\n$NAME installs TopSolid with its local PDM server, SQL Server and license server, and adds it to your app menu.\n\n<b>What you need</b>\n• TopSolid's installation media, or an internet connection to download them from TopSolid (19 GB)\n• a TopSolid license, or TopSolid's 30-day evaluation\n• $NEED_GB GB of free disk space (65 GB when downloading) and 30 to 60 minutes\n\n<small>$NAME is an unofficial project, not affiliated with TOPSOLID SAS.</small>" \
+        "Next" "Cancel" || exit 0
 
-    local guess
+    check_existing
+
+    local guess choice
     guess="$(find_media)"
-    local source
-    source="$(zenity --list --radiolist --width=560 --height=230 --title=topsolinux \
-        --text="Where does TopSolid come from?" --column="" --column="source" --hide-header \
-        $([ -n "$guess" ] && echo TRUE || echo FALSE) "Installation media on this computer" \
-        $([ -n "$guess" ] && echo FALSE || echo TRUE) "Download it from TopSolid's server (19 GB)")" || exit 0
-    if [ "$source" != "Installation media on this computer" ]; then
-        DOWNLOAD=1
-        MEDIA="$HOME/Downloads/TopSolid-$(python3 "$TOOLS/fetchmedia.py" /nonexistent --version-only | tr ' ' _)" ||
-            fail "TopSolid's download server cannot be reached"
-        NEED_GB=$((NEED_GB + 20))
-    fi
-    while [ $DOWNLOAD = 0 ]; do
-        MEDIA="$(zenity --file-selection --directory --title="Select the TopSolid installation media (folder with Setup.exe)" \
-                 ${guess:+--filename="$guess/"})" || exit 0
-        check_media "$MEDIA" && break
-        zenity --error --width=400 --title=topsolinux --text="No TopSolid installation media in\n$MEDIA\n\nSelect the folder that contains Setup.exe."
+    while :; do
+        if [ -n "$guess" ]; then
+            choice="$(zenity --list --radiolist --width=620 --height=320 --title="$TITLE" --window-icon="$ICON" \
+                --text="<b>TopSolid installation media</b>\nThe folder with TopSolid's Setup.exe." \
+                --column="" --column="" --hide-header \
+                TRUE "Use the media in ${guess/#$HOME/\~}" \
+                FALSE "Choose another folder" \
+                FALSE "Download TopSolid from TopSolid's server (19 GB)")" || exit 0
+        else
+            choice="$(zenity --list --radiolist --width=620 --height=280 --title="$TITLE" --window-icon="$ICON" \
+                --text="<b>TopSolid installation media</b>\nNo installation media found in your Downloads folder." \
+                --column="" --column="" --hide-header \
+                TRUE "Download TopSolid from TopSolid's server (19 GB)" \
+                FALSE "Choose the folder with the installation media")" || exit 0
+        fi
+        case "$choice" in
+            Use*) MEDIA="$guess"; break ;;
+            Download*)
+                MEDIA="$HOME/Downloads/TopSolid-$(python3 "$TOOLS/fetchmedia.py" /nonexistent --version-only 2>/dev/null | tr ' ' _)" ||
+                    { zenity --error --width=420 --title="$TITLE" --text="TopSolid's download server cannot be reached."; continue; }
+                DOWNLOAD=1
+                NEED_GB=$((NEED_GB + 20))
+                break ;;
+            *)
+                MEDIA="$(zenity --file-selection --directory --title="TopSolid media" --window-icon="$ICON" \
+                         --filename="${guess:-$HOME/Downloads}/")" || continue
+                check_media "$MEDIA" && break
+                zenity --error --width=420 --title="$TITLE" --window-icon="$ICON" \
+                    --text="<b>This is not TopSolid's installation media.</b>\n\nChoose the folder that contains TopSolid's Setup.exe."
+                ;;
+        esac
     done
 
-    if zenity --question --width=400 --title=topsolinux --ok-label="Select file" --cancel-label="Later" \
-         --text="Do you have a TopSolid license file (lservrc)?\n\nYou can also install it later from the menu entry."; then
-        LICENSE="$(zenity --file-selection --title="Select the license file")" || LICENSE=""
-    fi
-
-    local choice sm=FALSE
+    local sm=FALSE
     spacemouse_present && sm=TRUE
-    choice="$(zenity --list --checklist --width=560 --height=240 --title=topsolinux \
-        --text="Options" --column="" --column="option" --hide-header --separator="|" \
-        TRUE "Also build a TopSolid AppImage (for Gear Lever or other computers)" \
-        $sm "SpaceMouse support (installs spacenavd, asks for your password)")" || exit 0
+    choice="$(zenity --list --checklist --width=620 --height=280 --title="$TITLE" --window-icon="$ICON" \
+        --text="<b>Options</b>" --column="" --column="" --hide-header --separator="|" \
+        TRUE "Add TopSolid to the app menu with Gear Lever (recommended)" \
+        $sm "SpaceMouse support (installs spacenavd)")" || exit 0
     case "$choice" in *SpaceMouse*) SPACEMOUSE=1 ;; *) SPACEMOUSE=0 ;; esac
-    if [ "${choice#*AppImage}" != "$choice" ]; then
-        BUILD_APPIMAGE=1
-        APPIMAGE_DIR="$(zenity --file-selection --directory --title="Where should the TopSolid AppImage go?" \
-                        --filename="$DEFAULT_APPIMAGE_DIR/")" || exit 0
-    else
-        BUILD_APPIMAGE=0
-    fi
+    case "$choice" in
+        *"Gear Lever"*) USE_GEARLEVER=1 ;;
+        *)
+            USE_GEARLEVER=0
+            APPIMAGE_DIR="$(zenity --file-selection --directory --title="Save AppImage in" --window-icon="$ICON" \
+                            --filename="$DEFAULT_APPIMAGE_DIR/")" || exit 0 ;;
+    esac
 }
 
 # --- main ----------------------------------------------------------------------------------------
 
 DEFAULT_APPIMAGE_DIR="$HOME/Applications"
-[ -d "$DEFAULT_APPIMAGE_DIR" ] || DEFAULT_APPIMAGE_DIR="$(dirname "${APPIMAGE:-$HOME/x}")"
+[ -d "$DEFAULT_APPIMAGE_DIR" ] || DEFAULT_APPIMAGE_DIR="$HOME/Downloads"
 
 case "${1:-}" in
     install)
         shift
         while [ $# -gt 0 ]; do
             case "$1" in
-                --media)       MEDIA="$(readlink -f "$2")"; shift ;;
-                --download)    DOWNLOAD=1; MEDIA="$(readlink -f "$2")"; NEED_GB=$((NEED_GB + 20)); shift ;;
-                --license)     LICENSE="$(readlink -f "$2")"; shift ;;
-                --appimage)    APPIMAGE_DIR="$(readlink -f "$2")"; BUILD_APPIMAGE=1; shift ;;
-                --no-appimage) BUILD_APPIMAGE=0 ;;
-                --spacemouse)  SPACEMOUSE=1 ;;
+                --media)         MEDIA="$(readlink -f "$2")"; shift ;;
+                --download)      DOWNLOAD=1; MEDIA="$(readlink -f "$2")"; NEED_GB=$((NEED_GB + 20)); shift ;;
+                --replace)       REPLACE=1 ;;
+                --gearlever)     USE_GEARLEVER=1 ;;
+                --appimage-dir)  APPIMAGE_DIR="$(readlink -f "$2")"; USE_GEARLEVER=0; shift ;;
+                --spacemouse)    SPACEMOUSE=1 ;;
                 --no-spacemouse) SPACEMOUSE=0 ;;
                 *) echo "unknown option $1" >&2; exit 1 ;;
             esac
             shift
         done
         [ -n "$MEDIA" ] || MEDIA="$(find_media)"
-        [ $DOWNLOAD = 1 ] || check_media "${MEDIA:-/nonexistent}" || { echo "usage: $0 install --media DIR | --download DIR [--license FILE] [--appimage DIR | --no-appimage]" >&2; exit 1; }
-        [ -n "$APPIMAGE_DIR" ] || APPIMAGE_DIR="$DEFAULT_APPIMAGE_DIR"
+        [ $DOWNLOAD = 1 ] || check_media "${MEDIA:-/nonexistent}" ||
+            { echo "usage: $0 install --media DIR | --download DIR [--replace] [--gearlever | --appimage-dir DIR] [--spacemouse]" >&2; exit 1; }
         [ "$SPACEMOUSE" = auto ] && { spacemouse_present && SPACEMOUSE=1 || SPACEMOUSE=0; }
         [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null && GUI=1
+        mkdir -p "$DATA"
+        check_existing
         ;;
     "")
         [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null ||
             { echo "no display or zenity; use: $0 install --media DIR" >&2; exit 1; }
         GUI=1
+        mkdir -p "$DATA"
         ask
         ;;
     *)
-        echo "usage: $0 [install --media DIR | --download DIR [--license FILE] [--appimage DIR | --no-appimage] [--spacemouse | --no-spacemouse]]" >&2
+        echo "usage: $0 [install --media DIR | --download DIR [--replace] [--gearlever | --appimage-dir DIR] [--spacemouse | --no-spacemouse]]" >&2
         exit 1 ;;
 esac
+# with Gear Lever the AppImage is made in Downloads, Gear Lever then moves it to its own folder
+[ $USE_GEARLEVER = 1 ] && APPIMAGE_DIR="$HOME/Downloads"
+[ -n "$APPIMAGE_DIR" ] || APPIMAGE_DIR="$DEFAULT_APPIMAGE_DIR"
 
 check_system
-[ -n "$LICENSE" ] && { [ -f "$LICENSE" ] || fail "license file $LICENSE not found"; }
-echo "=== $(date '+%F %T') media $MEDIA, appimage ${BUILD_APPIMAGE}:$APPIMAGE_DIR" >> "$LOG"
-if grep -qx finish "$STATE" 2>/dev/null && { [ $BUILD_APPIMAGE = 0 ] || grep -qx appimage "$STATE"; }; then
-    info "TopSolid is already installed in $DATA.\n\nTo install again, remove that folder first."
-    exit 0
-fi
+echo "=== $(date '+%F %T') $TITLE, media $MEDIA, gearlever $USE_GEARLEVER, appimage $APPIMAGE_DIR" >> "$LOG"
 
 progress_start
-[ $DOWNLOAD = 1 ] && step download
-step prefix
-step runtimes
-step setup
-step sqlsetup
-step extras
-step sql
-step pdm
-step finish
-APPIMAGE_OUT=""
-[ "$SPACEMOUSE" = 1 ] && step spacemouse
-if [ $BUILD_APPIMAGE = 1 ]; then
-    step appimage
-else
-    step menu
-fi
+[ $DOWNLOAD = 1 ] && step download prefix
+step prefix runtimes
+step runtimes setup
+step setup sqlsetup
+step sqlsetup extras
+step extras sql
+step sql pdm
+step pdm finish
+step finish spacemouse
+[ "$SPACEMOUSE" = 1 ] && step spacemouse appimage
+step appimage gearlever
+[ $USE_GEARLEVER = 1 ] && step gearlever end
 progress_stop
+[ -n "$APPIMAGE_OUT" ] || APPIMAGE_OUT="$(cat "$DATA/appimage.path" 2>/dev/null)"
 
-if [ -n "$APPIMAGE_OUT" ]; then
-    info "TopSolid $VERSION is installed.\n\nStart it with the AppImage:\n$APPIMAGE_OUT\n\n(open it with Gear Lever to get a menu entry). On this computer it uses the installation in $DATA; on another computer it installs itself on the first start.\n\nThe first start asks for the PDM connection: choose the local PDM server and log in as admin. Libraries can be added from TopSolid afterwards.$SPACEMOUSE_NOTE"
+if [ -n "$INTEGRATED" ]; then
+    where="TopSolid $VERSION is in your app menu."
 else
-    info "TopSolid $VERSION is installed and in your application menu.\n\nThe first start asks for the PDM connection: choose the local PDM server and log in as admin. Libraries can be added from TopSolid afterwards.$SPACEMOUSE_NOTE"
+    where="Start TopSolid with <tt>${APPIMAGE_OUT/#$HOME/\~}</tt>."
 fi
+info "<big><b>TopSolid $VERSION is installed</b></big>\n\n$where\n\n<b>First start</b>\n• License: without a license file TopSolid starts its 30-day evaluation.\n• PDM connection: choose <i>Local PDM Server</i> and log in as <b>admin</b> (no password).\n• Add the libraries you need from TopSolid.\n\nThe TopSolid AppImage also installs itself on other computers (each with its own license).$NOTES"
