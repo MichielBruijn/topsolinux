@@ -63,7 +63,7 @@ Without the AppImage option, the installer adds TopSolid to your application men
 
 ## First start
 
-TopSolid asks for the PDM connection: choose the local PDM server and log in as `admin` (no password).
+TopSolid asks for the PDM connection: choose the local PDM server and leave user and password empty.
 Then add the libraries you need from TopSolid. The first start of the local PDM can take a few minutes;
 a small window shows that it is starting.
 
