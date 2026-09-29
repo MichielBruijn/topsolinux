@@ -239,6 +239,15 @@ step_extras()
         m="$(ls "$MEDIA"/Setup/Redist/Sentinel\ RMS\ License\ Manager/*.msi 2>/dev/null | head -1)"
         [ -n "$m" ] && { say "Installing the Sentinel RMS license server"; wine_run msiexec /i "$(winpath "$m")" /qn; }
     fi
+    # the license server's MSI sets up Sentinel RMS's persistence, which TopSolid's 30-day evaluation needs on its
+    # very first start; it is sometimes missing afterwards, a repair of the MSI creates it
+    m="$(ls "$MEDIA"/Setup/Redist/Sentinel\ RMS\ License\ Manager/*.msi 2>/dev/null | head -1)"
+    if [ -n "$m" ] && [ ! -d "$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS Development Kit/System" ]; then
+        say "Repairing the Sentinel RMS license server"
+        wine_run msiexec /fa "$(winpath "$m")" /qn
+        [ -d "$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS Development Kit/System" ] ||
+            { say "Sentinel RMS could not be set up (needed for the evaluation mode)"; return 1; }
+    fi
     if [ ! -f "$WINEPREFIX/drive_c/Program Files/TOPSOLID/TopSolid Update/bin/TopSolid.Update.exe" ]; then
         m="$(ls "$MEDIA"/Setup/x64/TopSolid\'Update\ x64.msi 2>/dev/null | head -1)"
         [ -n "$m" ] && { say "Installing TopSolid'Update"; wine_run msiexec /i "$(winpath "$m")" /qn; }
@@ -248,11 +257,41 @@ step_extras()
 
 service_exists() { "$WINE" sc query "$1" 2>/dev/null | grep -q STATE; }
 
+service_state() { "$WINE" sc query "$1" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *\([A-Z_]*\).*/\1/p'; }
+
+# stop a service and wait until it has really stopped
+stop_service()
+{
+    local i
+    wine_run net stop "$1"
+    for i in $(seq 30); do
+        case "$(service_state "$1")" in STOPPED|"") return 0 ;; esac
+        sleep 2
+    done
+    return 1
+}
+
+# TopSolid's PDM service starts SQL Server when Wine starts; SQL Server must be stopped to reconfigure it
+stop_sql()
+{
+    find_version && stop_service "$PDM_SERVICE"
+    stop_service 'MSSQL$SQLTOPSOLID'
+}
+
 sql_healthy()
 {
+    local i
     service_exists 'MSSQL$SQLTOPSOLID' || return 1
-    wine_run net start 'MSSQL$SQLTOPSOLID'
-    sql_wait_ready && sql_query -h-1 -Q "set nocount on; select 'topsolinux-ok'" | grep -q topsolinux-ok
+    if [ "$(service_state 'MSSQL$SQLTOPSOLID')" != RUNNING ]; then
+        rm -f "$SQLDIR/Log/ERRORLOG"
+        wine_run net start 'MSSQL$SQLTOPSOLID'
+        sql_wait_ready || return 1
+    fi
+    for i in 1 2 3; do
+        sql_query -h-1 -Q "set nocount on; select 'topsolinux-ok'" | grep -q topsolinux-ok && return 0
+        sleep 5
+    done
+    return 1
 }
 
 # SQL Server's setup fails under Wine near the end (WMI), leaving the instance unconfigured. Finish it by hand:
@@ -270,13 +309,14 @@ step_sql()
     if [ -f "$SQLDIR/DATA/.topsolinux" ] && sql_healthy; then say "SQL Server works"; return 0; fi
 
     say "Configuring SQL Server"
-    wine_run net stop 'MSSQL$SQLTOPSOLID'
+    stop_sql
     reg_import "$SHARE/reg/sql-instance.reg"
     reg_import "$SHARE/reg/services.reg"
     # services.exe only reads new services when it starts
     "$WINESERVER" -k; "$WINESERVER" -w
     wine_run wineboot
     service_exists 'MSSQL$SQLTOPSOLID' || { say "The SQL Server service could not be created"; return 1; }
+    stop_sql || { say "SQL Server could not be stopped"; return 1; }
     mkdir -p "$SQLDIR/DATA" "$SQLDIR/Log" "$SQLDIR/Backup" "$SQLDIR/JOBS"
     for f in master.mdf mastlog.ldf model.mdf modellog.ldf msdbdata.mdf msdblog.ldf; do
         [ -f "$SQLDIR/DATA/$f" ] || cp "$SQLDIR/Binn/Templates/$f" "$SQLDIR/DATA/" || return 1
@@ -296,7 +336,7 @@ step_sql()
     echo "$out" >> "$LOG"
     if echo "$out" | grep -q "^Msg "; then say "Configuring SQL Server's databases failed"; return 1; fi
     rm -f "$WINEPREFIX/drive_c/firstconfig.sql" "$WINEPREFIX/drive_c/logins.sql"
-    wine_run net stop 'MSSQL$SQLTOPSOLID'
+    stop_service 'MSSQL$SQLTOPSOLID'
     for f in 3 4 5; do wine_run reg delete "$SQLPARAMS" /v SQLArg$f /f; done
 
     # normal start: TCP on port 14330 (the PDM uses it), automatic start
