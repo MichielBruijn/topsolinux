@@ -28,8 +28,9 @@ Tested with TopSolid 7.20 (media 7.20.400.0 RTM, updated to SP6 with TopSolid'Up
    - select the installation media (it is found automatically in your Downloads folder),
    - select your license file, or skip it,
    - choose whether to also build a TopSolid AppImage (recommended, on by default).
-4. TopSolid's own installer opens. Choose your modules and accept the license agreement.
-   If SQL Server reports an error at the end, confirm it: topsolinux repairs SQL Server afterwards.
+4. TopSolid's own installer opens. Choose your modules, click Install and accept the license agreement.
+   The automatic installation of SQL Server fails under Wine: click **Cancel**, then OK, close the log
+   window and click Close. topsolinux then installs and repairs SQL Server itself.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
 Without a desktop, or to script it:
@@ -98,9 +99,10 @@ The installer:
 
 1. creates a Wine environment and installs fonts, Visual C++ 2019, .NET 4.8 and .NET 3.5 with winetricks,
 2. runs TopSolid's own `Setup.exe` from your media,
-3. installs the license server and TopSolid'Update if the setup skipped them,
-4. finishes SQL Server's configuration (its setup fails near the end under Wine: registry, system
-   databases, file locations, a login for the Windows administrators group, TCP port 14330),
+3. installs SQL Server Express from your media without the Windows Update check that fails under Wine,
+   and the license server and TopSolid'Update if the setup skipped them,
+4. finishes SQL Server's configuration (its setup still fails at the very end under Wine: registry,
+   system databases, file locations, a login for the Windows administrators group, TCP port 14330),
 5. performs the first start of the local PDM server (it only starts the first time while TopSolid's
    PDM server admin tool is running),
 6. installs your license and makes the menu entry or AppImage.

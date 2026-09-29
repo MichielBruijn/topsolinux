@@ -130,7 +130,16 @@ find_version()
 step_prefix()
 {
     say "Creating the Wine environment"
-    wine_run wineboot -i
+    # Wine installs Gecko (for embedded web pages) without asking when it is in its download cache;
+    # Mono is not needed, winetricks installs Microsoft's .NET Framework
+    local cache="${XDG_CACHE_HOME:-$HOME/.cache}/wine" arch v
+    v="$(sed -n 's/.*GECKO_VERSION *"\([0-9.]*\)".*/\1/p' "$SHARE/wine-addons" 2>/dev/null)"
+    mkdir -p "$cache"
+    for arch in x86 x86_64; do
+        [ -n "$v" ] && [ ! -f "$cache/wine-gecko-$v-$arch.msi" ] &&
+            curl -fsSL -o "$cache/wine-gecko-$v-$arch.msi" "https://dl.winehq.org/wine/wine-gecko/$v/wine-gecko-$v-$arch.msi"
+    done
+    WINEDLLOVERRIDES="$WINEDLLOVERRIDES;mscoree=" wine_run wineboot -i
     # installers of Microsoft's runtimes crash in helper tools (e.g. ServiceModelReg.exe); without this,
     # Wine's crash dialog stops the installation until someone closes it
     wine_run reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f

@@ -69,8 +69,10 @@ story = [
             + c('chmod +x') + ') and start it.',
             'Select the installation media (found automatically in Downloads), your license file (or skip it), '
             'and whether to also build a TopSolid AppImage (on by default).',
-            'TopSolid\'s own installer opens: choose your modules and accept the license agreement. If SQL Server '
-            'reports an error at the end, confirm it: topsolinux repairs SQL Server afterwards.',
+            'TopSolid\'s own installer opens: choose your modules, click Install and accept the license agreement. '
+            'The automatic installation of SQL Server fails under Wine: click <b>Cancel</b>, then OK, close the log '
+            'window and click Close. topsolinux installs and repairs SQL Server itself.',
+            'For a SpaceMouse, tick <i>SpaceMouse support</i>: it installs spacenavd and asks for your password.',
             'Wait: the whole installation takes 30 to 60 minutes. If it is interrupted, start the installer again '
             'and it continues where it stopped.'),
     Paragraph('Everything is installed in ' + c('~/.local/share/topsolinux') + '.', body),
