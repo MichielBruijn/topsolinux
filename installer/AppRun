@@ -50,8 +50,8 @@ say()
     [ -n "$PROGRESS" ] && echo "# $*" >&"$PROGFD"
 }
 
-# position of the progress bar, 0-100
-percent() { [ -n "$PROGRESS" ] && echo "$1" >&"$PROGFD"; }
+# the progress bar pulsates; kept for the download, which reports a percentage
+percent() { :; }
 
 fail()
 {
@@ -82,28 +82,12 @@ progress_start()
     [ $GUI = 1 ] || return
     # a descriptor chosen by bash: a fixed one could be the AppImage runtime's keepalive pipe, and closing
     # that unmounts the AppImage
-    exec {PROGFD}> >(zenity --progress --no-cancel --auto-close --width=520 --title="$TITLE" --window-icon="$ICON" \
+    exec {PROGFD}> >(zenity --progress --pulsate --no-cancel --auto-close --width=520 --title="$TITLE" --window-icon="$ICON" \
                   --text="Preparing..." 2>/dev/null)
     PROGRESS=$!
 }
 
-# keep the progress bar moving during long steps: creep towards the start of the next step and show the time
-ticker_start()  # FROM TO
-{
-    [ -n "$PROGRESS" ] || return
-    (
-        local p=$1 t0=$SECONDS e
-        while sleep 5; do
-            e=$((SECONDS - t0))
-            [ $((e % 20)) -lt 5 ] && [ "$p" -lt $(($2 - 1)) ] && p=$((p + 1))
-            echo "$p"
-            printf '# %s   (%d:%02d)\n' "$(cat "$DATA/.status" 2>/dev/null)" $((e / 60)) $((e % 60))
-        done
-    ) >&"$PROGFD" 2>/dev/null &
-    TICKER=$!
-}
-
-ticker_stop() { [ -n "${TICKER:-}" ] && kill "$TICKER" 2>/dev/null; TICKER=""; }
+ticker_stop() { :; }
 
 progress_stop()
 {
@@ -115,32 +99,11 @@ progress_stop()
     PROGRESS=""
 }
 
-# where each step starts on the progress bar; a download takes the first quarter
-step_percent()
-{
-    local p
-    case "$1" in
-        download) echo 0; return ;;
-        prefix) p=2 ;; runtimes) p=5 ;; setup) p=22 ;; sqlsetup) p=40 ;; extras) p=48 ;; sql) p=52 ;;
-        pdm) p=62 ;; finish) p=70 ;; spacemouse) p=72 ;; appimage) p=74 ;; gearlever) p=94 ;; end) p=100 ;; *) p=0 ;;
-    esac
-    [ $DOWNLOAD = 1 ] && p=$((25 + p * 3 / 4))
-    echo $p
-}
-
 # run a step only once, so that an interrupted installation continues where it stopped
 step()
 {
-    local from to
     grep -qx "$1" "$STATE" 2>/dev/null && return
-    from="$(step_percent "$1")"
-    to="$(step_percent "${2:-end}")"
-    [ "$to" -gt "$from" ] || to=100
-    percent "$from"
-    # the download reports its own progress
-    [ "$1" = download ] || ticker_start "$from" "$to"
     "step_$1" || fail "${LAST_SAY:-Step $1 failed.}"
-    ticker_stop
     echo "$1" >> "$STATE"
 }
 
@@ -227,7 +190,6 @@ step_download()
     python3 "$TOOLS/fetchmedia.py" "$MEDIA" 2>>"$LOG" | while IFS= read -r line; do
         case "$line" in
             "#"*) [ -n "$PROGRESS" ] && echo "$line" >&"$PROGFD" || echo "$line" >&2 ;;
-            [0-9]*) percent $((line / 4)) ;;
         esac
     done
     [ "${PIPESTATUS[0]}" = 0 ] || { say "Downloading TopSolid failed"; return 1; }
@@ -277,7 +239,6 @@ step_runtimes()
     # .NET 4.0 is only needed for its mscoree.dll, which the .NET 4.8 installer expects Windows to have
     say "Installing fonts, Visual C++ and .NET 4.0 (small downloads from Microsoft)"
     winetricks_run corefonts vcrun2019 dotnet40 || { say "Installing fonts, Visual C++ and .NET 4.0 failed"; return 1; }
-    percent "$(( $(step_percent runtimes) + 4 ))"
 
     say "Installing .NET Framework 4.8 from the installation media"
     if [ -f "$ndp" ]; then
@@ -290,7 +251,6 @@ step_runtimes()
     fi
     "$WINE" reg query 'HKLM\Software\Microsoft\NET Framework Setup\NDP\v4\Full' /v Release 2>/dev/null | grep -q Release ||
         { say "Installing .NET Framework 4.8 failed"; return 1; }
-    percent "$(( $(step_percent runtimes) + 10 ))"
 
     # SQL Server's CLR Types need .NET 3.5 before TopSolid's setup runs; winetricks takes the media's copy
     say "Installing .NET Framework 3.5 from the installation media"
@@ -306,7 +266,13 @@ step_runtimes()
 step_setup()
 {
     progress_stop
-    info "<b>Now TopSolid's own installer opens.</b>\n\n1. Choose the modules you use. On the <i>Server</i> tab keep <b>Sentinel RMS License Manager</b> checked; <i>Sentinel Protection Installer</i> and <i>TopSolid'Viewer</i> (on <i>Tools</i>) are not needed.\n2. Click <b>Install</b> and accept the license agreement.\n3. The automatic installation of SQL Server fails under Wine. That is expected: click <b>Cancel</b>, then <b>OK</b>, close the log window and click <b>Close</b>.\n\n$NAME installs and sets up SQL Server itself afterwards."
+    info "<b>Now TopSolid's own installer opens.</b>
+
+1. Choose the modules you use, click <b>Install</b> and accept the license agreement.
+2. <span foreground='#c01c28'><b>The installation of SQL Server fails under Wine. That is expected.</b></span>
+    Click <b>Cancel</b> (or OK, then Cancel and OK on its errors), close the log window and click <b>Close</b>.
+
+$NAME installs and sets up SQL Server itself afterwards."
     log "running $MEDIA/Setup.exe"
     (cd "$MEDIA" && "$WINE" Setup.exe >> "$LOG" 2>&1)
     # the bootstrapper may leave msiexec or the SQL setup running for a moment
@@ -316,8 +282,6 @@ step_setup()
         sleep 5
     done
     progress_start
-    percent "$(step_percent sqlsetup)"
-    ticker_start "$(step_percent sqlsetup)" "$(step_percent extras)"
     find_version || { say "TopSolid's setup was closed before TopSolid was installed."; return 1; }
     say "TopSolid $VERSION installed"
 }
@@ -518,7 +482,7 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
-Actions=update;license;stop;
+Actions=update;license;winecfg;stop;
 
 [Desktop Action update]
 Name=TopSolid'Update
@@ -527,6 +491,10 @@ Exec=AppRun update
 [Desktop Action license]
 Name=TopSolid license
 Exec=AppRun license-tool
+
+[Desktop Action winecfg]
+Name=Wine settings (screen scaling, ...)
+Exec=AppRun winecfg
 
 [Desktop Action stop]
 Name=Stop background services
@@ -715,7 +683,8 @@ ask()
     local sm=FALSE
     spacemouse_present && sm=TRUE
     choice="$(zenity --list --checklist --width=620 --height=420 --title="$TITLE" --window-icon="$ICON" \
-        --text="<b>Options</b>" --column="" --column="" --hide-header --separator="|" \
+        --text="<b>Options</b>\n\n<b>Gear Lever</b> puts TopSolid in your app menu. Right-click its icon there for TopSolid'Update, the license tool, Wine settings (for example screen scaling) and stopping the background services." \
+        --column="" --column="" --hide-header --separator="|" \
         TRUE "Add TopSolid to the app menu with Gear Lever (recommended)" \
         $sm "SpaceMouse support (installs spacenavd)")" || exit 0
     case "$choice" in *SpaceMouse*) SPACEMOUSE=1 ;; *) SPACEMOUSE=0 ;; esac
@@ -776,23 +745,23 @@ check_system
 echo "=== $(date '+%F %T') $TITLE, media $MEDIA, gearlever $USE_GEARLEVER, appimage $APPIMAGE_DIR" >> "$LOG"
 
 progress_start
-[ $DOWNLOAD = 1 ] && step download prefix
-step prefix runtimes
-step runtimes setup
-step setup sqlsetup
-step sqlsetup extras
-step extras sql
-step sql pdm
-step pdm finish
-step finish spacemouse
-[ "$SPACEMOUSE" = 1 ] && step spacemouse appimage
-step appimage gearlever
-[ $USE_GEARLEVER = 1 ] && step gearlever end
+[ $DOWNLOAD = 1 ] && step download
+step prefix
+step runtimes
+step setup
+step sqlsetup
+step extras
+step sql
+step pdm
+step finish
+[ "$SPACEMOUSE" = 1 ] && step spacemouse
+step appimage
+[ $USE_GEARLEVER = 1 ] && step gearlever
 progress_stop
 [ -n "$APPIMAGE_OUT" ] || APPIMAGE_OUT="$(cat "$DATA/appimage.path" 2>/dev/null)"
 
 if [ -n "$INTEGRATED" ]; then
-    where="TopSolid $VERSION is in your app menu."
+    where="TopSolid $VERSION is in your app menu. Right-click its icon for TopSolid'Update, the license tool, Wine settings and stopping the background services."
 else
     where="Start TopSolid with <tt>${APPIMAGE_OUT/#$HOME/\~}</tt>."
 fi
