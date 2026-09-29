@@ -681,41 +681,40 @@ ask()
     local guess choice
     guess="$(find_media)"
     while :; do
+        # buttons instead of a list: a list needs scrolling on scaled displays
         if [ -n "$guess" ]; then
-            choice="$(zenity --list --radiolist --width=620 --height=320 --title="$TITLE" --window-icon="$ICON" \
-                --text="<b>TopSolid installation media</b>\nThe folder with TopSolid's Setup.exe." \
-                --column="" --column="" --hide-header \
-                TRUE "Use the media in ${guess/#$HOME/\~}" \
-                FALSE "Choose another folder" \
-                FALSE "Download TopSolid from TopSolid's server (19 GB)")" || exit 0
+            choice="$(zenity --question --width=560 --title="$TITLE" --window-icon="$ICON" \
+                --text="<b>TopSolid installation media</b>\n\nFound in <tt>${guess/#$HOME/\~}</tt>" \
+                --ok-label="Use these media" --cancel-label="Cancel" \
+                --extra-button="Choose another folder" --extra-button="Download from TopSolid")" && choice=use
         else
-            choice="$(zenity --list --radiolist --width=620 --height=280 --title="$TITLE" --window-icon="$ICON" \
-                --text="<b>TopSolid installation media</b>\nNo installation media found in your Downloads folder." \
-                --column="" --column="" --hide-header \
-                TRUE "Download TopSolid from TopSolid's server (19 GB)" \
-                FALSE "Choose the folder with the installation media")" || exit 0
+            choice="$(zenity --question --width=560 --title="$TITLE" --window-icon="$ICON" \
+                --text="<b>TopSolid installation media</b>\n\nNo installation media found in your Downloads folder. Download them from TopSolid's server (19 GB), or choose the folder with TopSolid's Setup.exe." \
+                --ok-label="Download from TopSolid" --cancel-label="Cancel" \
+                --extra-button="Choose folder")" && choice=download
         fi
         case "$choice" in
-            Use*) MEDIA="$guess"; break ;;
-            Download*)
+            use) MEDIA="$guess"; break ;;
+            "Download from TopSolid"|download)
                 MEDIA="$HOME/Downloads/TopSolid-$(python3 "$TOOLS/fetchmedia.py" /nonexistent --version-only 2>/dev/null | tr ' ' _)" ||
-                    { zenity --error --width=420 --title="$TITLE" --text="TopSolid's download server cannot be reached."; continue; }
+                    { zenity --error --width=420 --title="$TITLE" --window-icon="$ICON" --text="TopSolid's download server cannot be reached."; continue; }
                 DOWNLOAD=1
                 NEED_GB=$((NEED_GB + 20))
                 break ;;
-            *)
+            Choose*)
                 MEDIA="$(zenity --file-selection --directory --title="TopSolid media" --window-icon="$ICON" \
                          --filename="${guess:-$HOME/Downloads}/")" || continue
                 check_media "$MEDIA" && break
                 zenity --error --width=420 --title="$TITLE" --window-icon="$ICON" \
                     --text="<b>This is not TopSolid's installation media.</b>\n\nChoose the folder that contains TopSolid's Setup.exe."
                 ;;
+            *) exit 0 ;;
         esac
     done
 
     local sm=FALSE
     spacemouse_present && sm=TRUE
-    choice="$(zenity --list --checklist --width=620 --height=280 --title="$TITLE" --window-icon="$ICON" \
+    choice="$(zenity --list --checklist --width=620 --height=420 --title="$TITLE" --window-icon="$ICON" \
         --text="<b>Options</b>" --column="" --column="" --hide-header --separator="|" \
         TRUE "Add TopSolid to the app menu with Gear Lever (recommended)" \
         $sm "SpaceMouse support (installs spacenavd)")" || exit 0
