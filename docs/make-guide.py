@@ -93,7 +93,7 @@ story = [
 
     Paragraph('4. First start', h2),
     bullets('License question: answer it as you would on Windows.',
-            'PDM connection: choose the local PDM server. The PDM user is <b>admin</b>, without a password.',
+            'PDM connection: choose the local PDM server and leave user and password empty.',
             'Libraries: import the ones you need from TopSolid.',
             'New Project: enter a name, choose Blank Template and click the green check mark.'),
     Paragraph('SQL Server, the local PDM and the license server start by themselves and stop again when you close '

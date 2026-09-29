@@ -797,4 +797,4 @@ if [ -n "$INTEGRATED" ]; then
 else
     where="Start TopSolid with <tt>${APPIMAGE_OUT/#$HOME/\~}</tt>."
 fi
-info "<big><b>TopSolid $VERSION is installed</b></big>\n\n$where\n\n<b>First start</b>\n• License: without a license file TopSolid starts its 30-day evaluation.\n• PDM connection: choose <i>Local PDM Server</i> and log in as <b>admin</b> (no password).\n• Add the libraries you need from TopSolid.\n\nWant TopSolid on another computer? Copy the TopSolid AppImage there and start it (each computer needs its own license).$NOTES"
+info "<big><b>TopSolid $VERSION is installed</b></big>\n\n$where\n\n<b>First start</b>\n• License: without a license file TopSolid starts its 30-day evaluation.\n• PDM connection: choose <i>Local PDM Server</i> and leave user and password empty.\n• Add the libraries you need from TopSolid.\n\nWant TopSolid on another computer? Copy the TopSolid AppImage there and start it (each computer needs its own license).$NOTES"
