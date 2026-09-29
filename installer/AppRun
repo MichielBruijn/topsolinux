@@ -673,7 +673,7 @@ check_existing()
 
 ask()
 {
-    question "<big><b>Install TopSolid on Linux</b></big>\n\n$NAME installs TopSolid with its local PDM server, SQL Server and license server, and adds it to your app menu.\n\n<b>What you need</b>\n• TopSolid's installation media, or an internet connection to download them from TopSolid (19 GB)\n• a TopSolid license, or TopSolid's 30-day evaluation\n• $NEED_GB GB of free disk space (65 GB when downloading) and 30 to 60 minutes\n\n<small>$NAME is an unofficial project, not affiliated with TOPSOLID SAS.</small>" \
+    question "<big><b>Install TopSolid on Linux</b></big>\n\n$NAME installs TopSolid with its local PDM server and SQL Server, and adds it to your app menu.\n\n<b>What you need</b>\n• TopSolid's installation media, or an internet connection to download them from TopSolid (19 GB)\n• a TopSolid license, or TopSolid's 30-day evaluation\n• $NEED_GB GB of free disk space (65 GB when downloading) and 30 to 60 minutes\n\n<small>$NAME is an unofficial project, not affiliated with TOPSOLID SAS.</small>" \
         "Next" "Cancel" || exit 0
 
     check_existing
