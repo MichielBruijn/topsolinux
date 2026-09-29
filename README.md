@@ -77,7 +77,8 @@ The menu entry (right-click the icon: TopSolid'Update, license tool, Wine settin
 | `update` | start TopSolid'Update (service packs) |
 | `license FILE` | install a license file |
 | `license-tool` | TopSolid's license tool |
-| `scale 150` | make text and icons 150% bigger (100 = normal), kept until changed |
+| `scale 150` | make text and icons 150% bigger (100 = normal), kept until changed; by default TopSolid follows the desktop's scale |
+| `scale auto` | follow the desktop's scale again |
 | `stop` | stop SQL Server, the PDM and the license server |
 | `winecfg`, `regedit`, `shell` | Wine tools, for troubleshooting |
 

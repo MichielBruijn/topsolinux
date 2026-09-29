@@ -137,6 +137,9 @@ sql_wait_ready()
     return 1
 }
 
+# draw Windows programs at the desktop's scale; Wine assumes 100% otherwise
+set_dpi() { wine_run reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d "$("$TOOLS/desktop-dpi")" /f; }
+
 sql_query() { "$WINE" "$OSQL" -S 'np:\\.\pipe\SQLLocal\SQLTOPSOLID' -E "$@" 2>>"$LOG"; }
 
 find_version()
@@ -235,6 +238,7 @@ step_prefix()
     # installers of Microsoft's runtimes crash in helper tools (e.g. ServiceModelReg.exe); without this,
     # Wine's crash dialog stops the installation until someone closes it
     wine_run reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f
+    set_dpi
     "$WINESERVER" -w
     [ -f "$WINEPREFIX/system.reg" ]
 }
@@ -275,6 +279,7 @@ step_runtimes()
 step_setup()
 {
     progress_stop
+    set_dpi
     info "<b>Now TopSolid's own installer opens.</b>
 
 1. Choose the modules you use, click <b>Install</b> and accept the license agreement.
@@ -543,7 +548,7 @@ step_appimage()
     cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
-    cp "$TOOLS/unstick.exe" "$dir/usr/lib/topsolinux/"
+    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$dir/usr/lib/topsolinux/"
     cp "$HERE/topsolinux-run" "$dir/AppRun"
     if [ -f "$DATA/topsolid.png" ]; then cp "$DATA/topsolid.png" "$dir/topsolid.png"; ln -s topsolid.png "$dir/.DirIcon"
     else cp "$ICON" "$dir/topsolid.svg"; ln -s topsolid.svg "$dir/.DirIcon"; fi
