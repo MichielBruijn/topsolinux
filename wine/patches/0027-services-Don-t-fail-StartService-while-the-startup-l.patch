@@ -1,7 +1,7 @@
 From 208d08722ae7a564f164f6e9f4d712462e7c1677 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:43:37 +0200
-Subject: [PATCH 27/49] services: Don't fail StartService() while the startup
+Subject: [PATCH 27/48] services: Don't fail StartService() while the startup
  lock is held.
 
 The startup lock is held during automatic startup, and services started

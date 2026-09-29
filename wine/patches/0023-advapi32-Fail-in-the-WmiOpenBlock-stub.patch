@@ -1,7 +1,7 @@
 From 750f7d6f0c2c097d46a48f5f94590e540ac660c2 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:43:10 +0200
-Subject: [PATCH 23/49] advapi32: Fail in the WmiOpenBlock() stub.
+Subject: [PATCH 23/48] advapi32: Fail in the WmiOpenBlock() stub.
 
 Returning success without a handle made callers use an uninitialized handle.
 

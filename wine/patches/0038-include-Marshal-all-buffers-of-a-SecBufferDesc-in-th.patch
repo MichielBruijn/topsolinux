@@ -1,7 +1,7 @@
 From 717b6d1f52d3f4fec1ff049b02ea2f829a58760e Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:45:02 +0200
-Subject: [PATCH 38/49] include: Marshal all buffers of a SecBufferDesc in the
+Subject: [PATCH 38/48] include: Marshal all buffers of a SecBufferDesc in the
  lsass interface.
 
 Only the first buffer was transferred to lsass, so security contexts

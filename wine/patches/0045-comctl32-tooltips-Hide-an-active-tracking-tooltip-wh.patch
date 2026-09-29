@@ -1,7 +1,7 @@
 From 0a83ec050f344997c429d891696479852613e16d Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Tue, 29 Sep 2026 13:22:06 +0200
-Subject: [PATCH 45/49] comctl32/tooltips: Hide an active tracking tooltip when
+Subject: [PATCH 45/48] comctl32/tooltips: Hide an active tracking tooltip when
  its tool is deleted.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

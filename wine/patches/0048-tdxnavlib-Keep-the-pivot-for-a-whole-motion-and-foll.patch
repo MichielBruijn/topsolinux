@@ -1,7 +1,7 @@
 From 0cf9f32922c758a1e8163ce1a601fadb2afd42ab Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Tue, 29 Sep 2026 00:39:12 +0200
-Subject: [PATCH 49/49] tdxnavlib: Keep the pivot for a whole motion and follow
+Subject: [PATCH 48/48] tdxnavlib: Keep the pivot for a whole motion and follow
  the application frame timing.
 
 Query the pivot once when a motion starts instead of on every frame, do

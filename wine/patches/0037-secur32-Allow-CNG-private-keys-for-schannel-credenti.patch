@@ -1,7 +1,7 @@
 From 0280fd6fc269ffb98b72b5c4660103c3fa651ffe Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:45:02 +0200
-Subject: [PATCH 37/49] secur32: Allow CNG private keys for schannel
+Subject: [PATCH 37/48] secur32: Allow CNG private keys for schannel
  credentials.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,7 +1,7 @@
 From 4c7299db04fb3c228f9f2acfc06b513137089f0f Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Tue, 29 Sep 2026 00:39:01 +0200
-Subject: [PATCH 44/49] ntdll: Close the local copy of the reply pipe once it
+Subject: [PATCH 44/48] ntdll: Close the local copy of the reply pipe once it
  has been sent.
 
 A thread that is terminated by the server before its init_thread request

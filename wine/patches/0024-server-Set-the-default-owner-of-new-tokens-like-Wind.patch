@@ -1,7 +1,7 @@
 From f89cf0e033ebbf8c3106b24c8f8600410f15f9d6 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:43:25 +0200
-Subject: [PATCH 24/49] server: Set the default owner of new tokens like
+Subject: [PATCH 24/48] server: Set the default owner of new tokens like
  Windows.
 
 The default owner of limited tokens is the user and the one of full and

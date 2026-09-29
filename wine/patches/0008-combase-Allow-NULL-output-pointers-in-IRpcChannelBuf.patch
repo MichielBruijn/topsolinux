@@ -1,7 +1,7 @@
 From 6bac41425a89a60976b3d1aa93b7fa832791a3d8 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:39 +0200
-Subject: [PATCH 08/49] combase: Allow NULL output pointers in
+Subject: [PATCH 08/48] combase: Allow NULL output pointers in
  IRpcChannelBuffer::GetDestCtx().
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

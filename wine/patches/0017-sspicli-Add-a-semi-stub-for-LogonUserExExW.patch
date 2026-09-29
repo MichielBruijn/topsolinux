@@ -1,7 +1,7 @@
 From f254ebb1c0aea5ff64e47ab7e264b7aebadc6c92 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:42:06 +0200
-Subject: [PATCH 17/49] sspicli: Add a semi-stub for LogonUserExExW().
+Subject: [PATCH 17/48] sspicli: Add a semi-stub for LogonUserExExW().
 
 Return a copy of the process token. Used by the WMI provider host.
 

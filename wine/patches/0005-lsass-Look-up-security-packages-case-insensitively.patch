@@ -1,7 +1,7 @@
 From 53e69f013e16b15c3682b29dfe81c3f2ecc629fb Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:27 +0200
-Subject: [PATCH 05/49] lsass: Look up security packages case-insensitively.
+Subject: [PATCH 05/48] lsass: Look up security packages case-insensitively.
 
 Applications pass package names like "negotiate" or "ntlm" in lower case,
 which Windows accepts.

@@ -1,7 +1,7 @@
 From 30b2de07ff2070b6bc5dc2577d7d618bc3f47261 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:41:33 +0200
-Subject: [PATCH 12/49] ntdll: Implement RtlCheckPortableOperatingSystem().
+Subject: [PATCH 12/48] ntdll: Implement RtlCheckPortableOperatingSystem().
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV

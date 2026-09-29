@@ -1,7 +1,7 @@
 From 0bfeef825c25c951fef1fc4b5ccfcafa4ec5eb6c Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:41:40 +0200
-Subject: [PATCH 15/49] ntdll: Allow a NULL privilege set in NtAccessCheck()
+Subject: [PATCH 15/48] ntdll: Allow a NULL privilege set in NtAccessCheck()
  when querying the size.
 
 AccessCheck() is called with a NULL PrivilegeSet and a zero length to query

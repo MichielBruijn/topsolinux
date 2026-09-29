@@ -1,7 +1,7 @@
 From 8eac674ccd2a63e5afdccb06a73ce12e2659f412 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:27 +0200
-Subject: [PATCH 03/49] vssapi: Add CreateWriter() and CreateWriterEx() stubs.
+Subject: [PATCH 03/48] vssapi: Add CreateWriter() and CreateWriterEx() stubs.
 
 Needed by the SQL Server VSS writer (sqlwriter.exe) to start.
 

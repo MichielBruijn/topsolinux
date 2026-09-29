@@ -3,18 +3,19 @@
 ## Trademarks
 
 TopSolid is a trademark of TOPSOLID SAS. SQL Server, .NET and Windows are trademarks of Microsoft.
-topsolinux is an independent, unofficial project. It is not affiliated with, endorsed by or supported
+TopSo'Linux is an independent, unofficial project. It is not affiliated with, endorsed by or supported
 by TOPSOLID SAS or Microsoft.
 
-## What topsolinux does and does not contain
+## What TopSo'Linux does and does not contain
 
 The installer contains **no** TopSolid, SQL Server or .NET files. TopSolid, SQL Server Express and the
 Sentinel license server are installed from TopSolid's installation media, under the license agreements
 the user accepts in TopSolid's own setup. The media are either the user's own copy or downloaded by the
-user from TopSolid's public download server (the one `TopSolid.Downloader.exe` on the media uses). The .NET Framework and Visual C++ runtimes are
+user from TopSolid's public download server (the one `TopSolid.Downloader.exe` on the media uses). .NET 4.8
+and 3.5 are installed from the media; .NET 4.0, the Visual C++ 2019 runtime and Microsoft's core fonts are
 downloaded from Microsoft by winetricks during the installation.
 
-A TopSolid AppImage made by the installer (the "build an AppImage" option) **does** contain TopSolid,
+The TopSolid AppImage the installer makes **does** contain TopSolid,
 SQL Server Express and the Microsoft runtimes. It is meant for computers you are licensed to use it on.
 Do not publish it.
 

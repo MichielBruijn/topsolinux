@@ -1,7 +1,7 @@
 From 62e94f762d3b72e99242daa9c447db5e10010ac7 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:40 +0200
-Subject: [PATCH 33/49] ncrypt: Implement NCryptIsKeyHandle() and keep
+Subject: [PATCH 33/48] ncrypt: Implement NCryptIsKeyHandle() and keep
  persisted keys in memory.
 
 Named keys created with NCryptCreatePersistedKey() can now be opened with

@@ -1,7 +1,7 @@
 From f43c6aef93276c1dfa2661bfb619604e2051c103 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:52 +0200
-Subject: [PATCH 35/49] crypt32: Support NCrypt keys in
+Subject: [PATCH 35/48] crypt32: Support NCrypt keys in
  CertCreateSelfSignCertificate().
 
 SQL Server generates its fallback TLS certificate from a CNG key handle.

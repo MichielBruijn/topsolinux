@@ -1,7 +1,7 @@
 From b7c4a9ac079dd33ab851d89e27ff64a3013a7728 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:43:31 +0200
-Subject: [PATCH 25/49] server: Check OpenThreadToken() access against the
+Subject: [PATCH 25/48] server: Check OpenThreadToken() access against the
  process token when OpenAsSelf is set.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,7 +1,7 @@
 From 2c02c29fb7a0cb580e11b8c72701298babe45a94 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:40:39 +0200
-Subject: [PATCH 09/49] combase: Expand REG_EXPAND_SZ LocalServer32 command
+Subject: [PATCH 09/48] combase: Expand REG_EXPAND_SZ LocalServer32 command
  lines.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

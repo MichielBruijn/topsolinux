@@ -1,7 +1,7 @@
 From b8496aa81369e67c37dfad10167fae2e3a835584 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:45:40 +0200
-Subject: [PATCH 41/49] msv1_0: Support SECPKG_ATTR_NAMES for server contexts.
+Subject: [PATCH 41/48] msv1_0: Support SECPKG_ATTR_NAMES for server contexts.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV

@@ -1,7 +1,7 @@
 From 146de7ebd6ed0c34845753ad329fec89f68508ab Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Sun, 27 Sep 2026 08:44:40 +0200
-Subject: [PATCH 34/49] ncrypt: Support importing legacy CAPI RSA key blobs.
+Subject: [PATCH 34/48] ncrypt: Support importing legacy CAPI RSA key blobs.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
