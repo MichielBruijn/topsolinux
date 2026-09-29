@@ -65,7 +65,7 @@ chmod +x "$TOOLS/appimagetool.AppImage"
 
 # --- topsolinux itself ------------------------------------------------------------------------------
 x86_64-w64-mingw32-gcc -O2 -s -o "$TOOLS/unstick.exe" "$TOP/installer/tools/unstick.c"
-cp "$TOP/installer/tools/exeicon.py" "$TOOLS/"
+cp "$TOP/installer/tools/exeicon.py" "$TOP/installer/tools/fetchmedia.py" "$TOOLS/"
 cp -r "$TOP/installer/data/reg" "$TOP/installer/data/sql" "$DIR/usr/share/topsolinux/"
 # the Gecko version this Wine expects, so the installer can fetch it beforehand
 strings -el "$DIR/usr/lib/wine/x86_64-windows/appwiz.cpl" | grep -o 'wine-gecko-[0-9.]*-x86_64.msi' | head -1 |

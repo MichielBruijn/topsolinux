@@ -1,8 +1,10 @@
 #!/bin/bash
-# topsolinux installer: installs TopSolid from the user's own installation media under a patched Wine
+# topsolinux installer: installs TopSolid under a patched Wine, from the user's installation media or from
+# TopSolid's own download server
 #
 # usage: topsolinux-installer.AppImage                      graphical installer
-#        topsolinux-installer.AppImage install --media DIR [--license FILE] [--appimage DIR | --no-appimage]
+#        topsolinux-installer.AppImage install --media DIR | --download DIR [--license FILE]
+#                                          [--appimage DIR | --no-appimage] [--spacemouse | --no-spacemouse]
 #
 # environment: TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
@@ -28,7 +30,7 @@ OSQL='C:\Program Files\Microsoft SQL Server\150\Tools\Binn\OSQL.EXE'
 LSERVRC='C:\Program Files (x86)\Common Files\Thales\Sentinel RMS License Manager\WinNT\lservrc'
 NEED_GB=45
 
-MEDIA="" LICENSE="" APPIMAGE_DIR="" BUILD_APPIMAGE=1 SPACEMOUSE=auto GUI=0 PROGRESS="" SPACEMOUSE_NOTE=""
+MEDIA="" DOWNLOAD=0 LICENSE="" APPIMAGE_DIR="" BUILD_APPIMAGE=1 SPACEMOUSE=auto GUI=0 PROGRESS="" SPACEMOUSE_NOTE=""
 
 # --- user interface -----------------------------------------------------------------------------
 
@@ -46,6 +48,8 @@ fail()
     log "ERROR: $*"
     echo "topsolinux: error: $*" >&2
     [ -n "$PROGRESS" ] && { exec {PROGFD}>&-; wait "$PROGRESS" 2>/dev/null; PROGRESS=""; }
+    # Wine's background services keep the AppImage in use; stop them so the installer can be replaced
+    "$WINESERVER" -k 2>/dev/null
     [ $GUI = 1 ] && zenity --error --width=450 --title=topsolinux --text="$*\n\nDetails: $LOG"
     exit 1
 }
@@ -127,6 +131,26 @@ find_version()
 
 # --- installation steps --------------------------------------------------------------------------
 
+# the same public server and file list as TopSolid.Downloader.exe on the installation media
+step_download()
+{
+    say "Downloading TopSolid $(python3 "$TOOLS/fetchmedia.py" "$MEDIA" --version-only) to $MEDIA (19 GB)"
+    python3 "$TOOLS/fetchmedia.py" "$MEDIA" 2>>"$LOG" | while IFS= read -r line; do
+        case "$line" in "#"*) [ -n "$PROGRESS" ] && echo "$line" >&"$PROGFD" || echo "$line" >&2 ;; esac
+    done
+    [ "${PIPESTATUS[0]}" = 0 ] && check_media "$MEDIA"
+}
+
+# Wine links the Windows desktop to the Linux one; TopSolid's setup would then put .lnk files there
+unlink_desktop()
+{
+    local d="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/Desktop" target
+    [ -L "$d" ] || return 0
+    target="$(readlink -f "$d")"
+    rm -f "$target"/TopSolid*.lnk "$target"/"SQL Server"*.lnk 2>/dev/null
+    rm -f "$d" && mkdir -p "$d"
+}
+
 step_prefix()
 {
     say "Creating the Wine environment"
@@ -137,9 +161,10 @@ step_prefix()
     mkdir -p "$cache"
     for arch in x86 x86_64; do
         [ -n "$v" ] && [ ! -f "$cache/wine-gecko-$v-$arch.msi" ] &&
-            curl -fsSL -o "$cache/wine-gecko-$v-$arch.msi" "https://dl.winehq.org/wine/wine-gecko/$v/wine-gecko-$v-$arch.msi"
+            wget -q -O "$cache/wine-gecko-$v-$arch.msi" "https://dl.winehq.org/wine/wine-gecko/$v/wine-gecko-$v-$arch.msi"
     done
     WINEDLLOVERRIDES="$WINEDLLOVERRIDES;mscoree=" wine_run wineboot -i
+    unlink_desktop
     # installers of Microsoft's runtimes crash in helper tools (e.g. ServiceModelReg.exe); without this,
     # Wine's crash dialog stops the installation until someone closes it
     wine_run reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f
@@ -192,8 +217,8 @@ step_sqlsetup()
     local setup="$MEDIA/Setup/Redist/SQL Server Express/SETUP.EXE"
     [ -f "$SQLDIR/Binn/sqlservr.exe" ] && return 0
     [ -f "$setup" ] || { say "SQL Server Express is not on the installation media"; return 1; }
-    say "Installing SQL Server Express from the installation media (10 minutes)"
-    (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
+    say "Installing SQL Server Express from the installation media (a few minutes)"
+    (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
         /UPDATEENABLED=False /IACCEPTSQLSERVERLICENSETERMS /SUPPRESSPRIVACYSTATEMENTNOTICE \
         "/SQLSVCACCOUNT=NT AUTHORITY\NETWORK SERVICE" "/SQLSYSADMINACCOUNTS=BUILTIN\Administrators" \
         /TCPENABLED=1 /NPENABLED=1 /SQLCOLLATION=SQL_Latin1_General_CP1_CI_AS /BROWSERSVCSTARTUPTYPE=Disabled >> "$LOG" 2>&1)
@@ -240,7 +265,9 @@ step_sql()
     local f
     for f in 3 4 5; do wine_run reg delete "$SQLPARAMS" /v SQLArg$f /f; done
     rm -f "$SQLDIR/Log/ERRORLOG"
-    if sql_healthy; then say "SQL Server works"; return 0; fi
+    # only test an instance that was configured before: a normal start of the unconfigured instance fails and
+    # leaves master in a state in which the configuration below fails too
+    if [ -f "$SQLDIR/DATA/.topsolinux" ] && sql_healthy; then say "SQL Server works"; return 0; fi
 
     say "Configuring SQL Server"
     wine_run net stop 'MSSQL$SQLTOPSOLID'
@@ -264,8 +291,10 @@ step_sql()
     wine_run net start 'MSSQL$SQLTOPSOLID'
     sql_wait_ready || { say "SQL Server did not start"; return 1; }
     cp "$SHARE/sql/firstconfig.sql" "$SHARE/sql/logins.sql" "$WINEPREFIX/drive_c/"
-    sql_query -n -i 'C:\firstconfig.sql' >> "$LOG"
-    sql_query -n -i 'C:\logins.sql' >> "$LOG"
+    local out
+    out="$(sql_query -n -i 'C:\firstconfig.sql'; sql_query -n -i 'C:\logins.sql')"
+    echo "$out" >> "$LOG"
+    if echo "$out" | grep -q "^Msg "; then say "Configuring SQL Server's databases failed"; return 1; fi
     rm -f "$WINEPREFIX/drive_c/firstconfig.sql" "$WINEPREFIX/drive_c/logins.sql"
     wine_run net stop 'MSSQL$SQLTOPSOLID'
     for f in 3 4 5; do wine_run reg delete "$SQLPARAMS" /v SQLArg$f /f; done
@@ -274,6 +303,7 @@ step_sql()
     reg_import "$SHARE/reg/tweaks.reg"
     rm -f "$SQLDIR/Log/ERRORLOG"
     sql_healthy || { say "SQL Server does not work after configuring it"; return 1; }
+    touch "$SQLDIR/DATA/.topsolinux"
     say "SQL Server works"
 }
 
@@ -317,6 +347,7 @@ step_finish()
     rm -rf "$DATA/runtime/usr/share/topsolinux"
     cp "$HERE/topsolinux-run" "$DATA/runtime/AppRun"
     touch "$WINEPREFIX/.topsolinux"
+    unlink_desktop
     wine_run reg delete 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /f
 
     stop_services
@@ -483,11 +514,22 @@ check_system()
 ask()
 {
     zenity --question --width=520 --title=topsolinux --ok-label=Continue --cancel-label=Cancel \
-        --text="<b>topsolinux</b> installs TopSolid on Linux from <b>your own</b> TopSolid installation media.\n\nYou need:\n• the TopSolid installation media (the folder with Setup.exe)\n• a TopSolid license (can also be added later)\n• about $NEED_GB GB of free disk space and an internet connection (for Microsoft's .NET runtimes)\n\ntopsolinux is an unofficial project and not affiliated with TOPSOLID SAS." || exit 0
+        --text="<b>topsolinux</b> installs TopSolid on Linux, with its local PDM server.\n\nYou need:\n• the TopSolid installation media (the folder with Setup.exe), or let topsolinux download it from TopSolid's server\n• a TopSolid license, or use TopSolid's evaluation mode (a license can be added later)\n• about $NEED_GB GB of free disk space (20 GB more for the download) and an internet connection\n\ntopsolinux is an unofficial project and not affiliated with TOPSOLID SAS." || exit 0
 
     local guess
     guess="$(find_media)"
-    while :; do
+    local source
+    source="$(zenity --list --radiolist --width=560 --height=230 --title=topsolinux \
+        --text="Where does TopSolid come from?" --column="" --column="source" --hide-header \
+        $([ -n "$guess" ] && echo TRUE || echo FALSE) "Installation media on this computer" \
+        $([ -n "$guess" ] && echo FALSE || echo TRUE) "Download it from TopSolid's server (19 GB)")" || exit 0
+    if [ "$source" != "Installation media on this computer" ]; then
+        DOWNLOAD=1
+        MEDIA="$HOME/Downloads/TopSolid-$(python3 "$TOOLS/fetchmedia.py" /nonexistent --version-only | tr ' ' _)" ||
+            fail "TopSolid's download server cannot be reached"
+        NEED_GB=$((NEED_GB + 20))
+    fi
+    while [ $DOWNLOAD = 0 ]; do
         MEDIA="$(zenity --file-selection --directory --title="Select the TopSolid installation media (folder with Setup.exe)" \
                  ${guess:+--filename="$guess/"})" || exit 0
         check_media "$MEDIA" && break
@@ -526,6 +568,7 @@ case "${1:-}" in
         while [ $# -gt 0 ]; do
             case "$1" in
                 --media)       MEDIA="$(readlink -f "$2")"; shift ;;
+                --download)    DOWNLOAD=1; MEDIA="$(readlink -f "$2")"; NEED_GB=$((NEED_GB + 20)); shift ;;
                 --license)     LICENSE="$(readlink -f "$2")"; shift ;;
                 --appimage)    APPIMAGE_DIR="$(readlink -f "$2")"; BUILD_APPIMAGE=1; shift ;;
                 --no-appimage) BUILD_APPIMAGE=0 ;;
@@ -536,7 +579,7 @@ case "${1:-}" in
             shift
         done
         [ -n "$MEDIA" ] || MEDIA="$(find_media)"
-        check_media "${MEDIA:-/nonexistent}" || { echo "usage: $0 install --media DIR [--license FILE] [--appimage DIR | --no-appimage]" >&2; exit 1; }
+        [ $DOWNLOAD = 1 ] || check_media "${MEDIA:-/nonexistent}" || { echo "usage: $0 install --media DIR | --download DIR [--license FILE] [--appimage DIR | --no-appimage]" >&2; exit 1; }
         [ -n "$APPIMAGE_DIR" ] || APPIMAGE_DIR="$DEFAULT_APPIMAGE_DIR"
         [ "$SPACEMOUSE" = auto ] && { spacemouse_present && SPACEMOUSE=1 || SPACEMOUSE=0; }
         [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null && GUI=1
@@ -548,7 +591,7 @@ case "${1:-}" in
         ask
         ;;
     *)
-        echo "usage: $0 [install --media DIR [--license FILE] [--appimage DIR | --no-appimage] [--spacemouse | --no-spacemouse]]" >&2
+        echo "usage: $0 [install --media DIR | --download DIR [--license FILE] [--appimage DIR | --no-appimage] [--spacemouse | --no-spacemouse]]" >&2
         exit 1 ;;
 esac
 
@@ -561,6 +604,7 @@ if grep -qx finish "$STATE" 2>/dev/null && { [ $BUILD_APPIMAGE = 0 ] || grep -qx
 fi
 
 progress_start
+[ $DOWNLOAD = 1 ] && step download
 step prefix
 step runtimes
 step setup

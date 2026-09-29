@@ -55,7 +55,8 @@ story = [
 
     Paragraph('1. What you need', h2),
     bullets('Ubuntu 24.04 or newer, or another 64-bit distribution with glibc 2.38 or newer.',
-            'The TopSolid installation media: the folder with ' + c('Setup.exe') + '.',
+            'The TopSolid installation media (the folder with ' + c('Setup.exe') + '), or let the installer '
+            'download it from TopSolid\'s server (19 GB).',
             'A TopSolid license file (' + c('lservrc') + '), can also be added later.',
             'About 45 GB of free disk space and an internet connection (for Microsoft\'s .NET runtimes).',
             'A GPU with a working OpenGL driver. Laptops with NVIDIA and Intel/AMD graphics use the NVIDIA GPU '
@@ -67,7 +68,8 @@ story = [
     Paragraph('2. Installing', h2),
     bullets('Make ' + c('topsolinux-installer-x86_64.AppImage') + ' executable (file properties, or '
             + c('chmod +x') + ') and start it.',
-            'Select the installation media (found automatically in Downloads), your license file (or skip it), '
+            'Choose the installation media (found automatically in Downloads) or the download from TopSolid\'s '
+            'server, your license file (or skip it for the evaluation mode), '
             'and whether to also build a TopSolid AppImage (on by default).',
             'TopSolid\'s own installer opens: choose your modules, click Install and accept the license agreement. '
             'The automatic installation of SQL Server fails under Wine: click <b>Cancel</b>, then OK, close the log '
