@@ -1,0 +1,51 @@
+From 4c7299db04fb3c228f9f2acfc06b513137089f0f Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 29 Sep 2026 00:39:01 +0200
+Subject: [PATCH 44/49] ntdll: Close the local copy of the reply pipe once it
+ has been sent.
+
+A thread that is terminated by the server before its init_thread request
+has been handled never gets a reply and cannot be signalled, as the
+server does not know its unix tid yet. As long as the thread keeps the
+write end of its own reply pipe open it then waits for a reply forever,
+keeping its pipes open. TopSolid creates and terminates threads at a
+high rate, which runs the process out of file descriptors.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ntdll/unix/server.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/ntdll/unix/server.c b/dlls/ntdll/unix/server.c
+index fa9138d..aed2105 100644
+--- a/dlls/ntdll/unix/server.c
++++ b/dlls/ntdll/unix/server.c
+@@ -1570,6 +1570,8 @@ static int init_thread_pipe( struct thread_data *data )
+     if (server_pipe( data->wait_fd ) == -1) server_protocol_perror( "pipe" );
+     wine_server_send_fd( reply_pipe[1] );
+     wine_server_send_fd( data->wait_fd[1] );
++    /* the server has its own copy now; if it kills the thread before replying, the read end sees EOF */
++    close( reply_pipe[1] );
+     data->reply_fd = reply_pipe[0];
+     return reply_pipe[1];
+ }
+@@ -1702,7 +1704,6 @@ void server_init_process( struct thread_data *data )
+         }
+     }
+     SERVER_END_REQ;
+-    close( reply_pipe );
+ 
+     if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
+ 
+@@ -1797,7 +1798,6 @@ void server_init_thread( struct thread_data *data )
+         data->suspend = reply->suspend;
+     }
+     SERVER_END_REQ;
+-    close( reply_pipe );
+ 
+     if (data->teb)
+     {
+-- 
+2.43.0
+

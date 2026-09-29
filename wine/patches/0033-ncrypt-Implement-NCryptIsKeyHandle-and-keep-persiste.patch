@@ -1,0 +1,398 @@
+From 62e94f762d3b72e99242daa9c447db5e10010ac7 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:40 +0200
+Subject: [PATCH 33/49] ncrypt: Implement NCryptIsKeyHandle() and keep
+ persisted keys in memory.
+
+Named keys created with NCryptCreatePersistedKey() can now be opened with
+NCryptOpenKey() and deleted with NCryptDeleteKey() within the same process.
+SQL Server creates its fallback TLS certificate key this way.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ncrypt/main.c            | 157 ++++++++++++++++++++++++++++++++--
+ dlls/ncrypt/ncrypt_internal.h |   4 +
+ dlls/ncrypt/tests/ncrypt.c    |  61 +++++++++++++
+ include/ncrypt.h              |   3 +
+ 4 files changed, 218 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/ncrypt/main.c b/dlls/ncrypt/main.c
+index 03ff94e..ad18435 100644
+--- a/dlls/ncrypt/main.c
++++ b/dlls/ncrypt/main.c
+@@ -24,10 +24,13 @@
+ #include "ntstatus.h"
+ #include "windef.h"
+ #include "winbase.h"
++#include "wincrypt.h"
+ #include "ncrypt.h"
+ #include "bcrypt.h"
+ #include "ncrypt_internal.h"
+ #include "wine/debug.h"
++#include "wine/list.h"
++#include "wine/exception.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(ncrypt);
+ 
+@@ -53,6 +56,7 @@ static struct object *allocate_object(enum object_type type)
+ {
+     struct object *ret;
+     if (!(ret = calloc(1, sizeof(*ret)))) return NULL;
++    ret->magic = OBJECT_MAGIC;
+     ret->type = type;
+     ret->refs = 1;
+     return ret;
+@@ -132,6 +136,78 @@ static SECURITY_STATUS set_object_property(struct object *object, const WCHAR *n
+     return ERROR_SUCCESS;
+ }
+ 
++/* FIXME: persisted keys are only kept for the lifetime of the process */
++struct persisted_key
++{
++    struct list entry;
++    WCHAR *name;
++    BYTE *blob;
++    DWORD size;
++};
++
++static struct list persisted_keys = LIST_INIT( persisted_keys );
++static CRITICAL_SECTION persisted_keys_cs;
++static CRITICAL_SECTION_DEBUG persisted_keys_cs_debug =
++{
++    0, 0, &persisted_keys_cs,
++    { &persisted_keys_cs_debug.ProcessLocksList, &persisted_keys_cs_debug.ProcessLocksList },
++      0, 0, { (DWORD_PTR)(__FILE__ ": persisted_keys_cs") }
++};
++static CRITICAL_SECTION persisted_keys_cs = { &persisted_keys_cs_debug, -1, 0, 0, 0, 0 };
++
++static struct persisted_key *find_persisted_key( const WCHAR *name )
++{
++    struct persisted_key *key;
++
++    LIST_FOR_EACH_ENTRY( key, &persisted_keys, struct persisted_key, entry )
++        if (!wcsicmp( key->name, name )) return key;
++    return NULL;
++}
++
++static void free_persisted_key( struct persisted_key *key )
++{
++    list_remove( &key->entry );
++    free( key->name );
++    free( key->blob );
++    free( key );
++}
++
++static NTSTATUS persist_key( const struct key *key )
++{
++    struct persisted_key *stored;
++    ULONG size;
++    BYTE *blob;
++    NTSTATUS status;
++
++    if (key->algid != RSA)
++    {
++        FIXME( "persisting algorithm %u not supported\n", key->algid );
++        return STATUS_SUCCESS;
++    }
++    if ((status = BCryptExportKey( key->bcrypt_key, NULL, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, 0, &size, 0 )))
++        return status;
++    if (!(blob = malloc( size ))) return STATUS_NO_MEMORY;
++    if ((status = BCryptExportKey( key->bcrypt_key, NULL, BCRYPT_RSAFULLPRIVATE_BLOB, blob, size, &size, 0 )))
++    {
++        free( blob );
++        return status;
++    }
++    if (!(stored = calloc( 1, sizeof(*stored) )) || !(stored->name = wcsdup( key->name )))
++    {
++        free( stored );
++        free( blob );
++        return STATUS_NO_MEMORY;
++    }
++    stored->blob = blob;
++    stored->size = size;
++
++    EnterCriticalSection( &persisted_keys_cs );
++    if ((find_persisted_key( key->name ))) free_persisted_key( find_persisted_key( key->name ) );
++    list_add_tail( &persisted_keys, &stored->entry );
++    LeaveCriticalSection( &persisted_keys_cs );
++    return STATUS_SUCCESS;
++}
++
+ static struct object *create_key_object(enum algid algid, NCRYPT_PROV_HANDLE provider)
+ {
+     NCRYPT_SUPPORTED_LENGTHS supported_lengths = {512, 16384, 8, 1024};
+@@ -188,7 +264,6 @@ SECURITY_STATUS WINAPI NCryptCreatePersistedKey(NCRYPT_PROV_HANDLE provider, NCR
+ 
+     if (!provider) return NTE_INVALID_HANDLE;
+     if (!algid) return HRESULT_FROM_WIN32(RPC_X_NULL_REF_POINTER);
+-    if (name) FIXME("Persistent keys are not supported\n");
+ 
+     if (!lstrcmpiW(algid, BCRYPT_RSA_ALGORITHM))
+     {
+@@ -236,6 +311,12 @@ SECURITY_STATUS WINAPI NCryptCreatePersistedKey(NCRYPT_PROV_HANDLE provider, NCR
+         return NTE_NOT_SUPPORTED;
+     }
+ 
++    if (name && !(object->key.name = wcsdup(name)))
++    {
++        NCryptFreeObject((NCRYPT_HANDLE)object);
++        return NTE_NO_MEMORY;
++    }
++
+     *key = (NCRYPT_KEY_HANDLE)object;
+     return ERROR_SUCCESS;
+ }
+@@ -250,8 +331,20 @@ SECURITY_STATUS WINAPI NCryptDecrypt(NCRYPT_KEY_HANDLE key, BYTE *input, DWORD i
+ 
+ SECURITY_STATUS WINAPI NCryptDeleteKey(NCRYPT_KEY_HANDLE key, DWORD flags)
+ {
+-    FIXME("(%#Ix, %#lx): stub\n", key, flags);
+-    return NTE_NOT_SUPPORTED;
++    struct object *object = (struct object *)key;
++    struct persisted_key *stored;
++
++    TRACE("(%#Ix, %#lx)\n", key, flags);
++
++    if (!object || object->type != KEY) return NTE_INVALID_HANDLE;
++
++    if (object->key.name)
++    {
++        EnterCriticalSection(&persisted_keys_cs);
++        if ((stored = find_persisted_key(object->key.name))) free_persisted_key(stored);
++        LeaveCriticalSection(&persisted_keys_cs);
++    }
++    return NCryptFreeObject(key);
+ }
+ 
+ SECURITY_STATUS WINAPI NCryptEncrypt(NCRYPT_KEY_HANDLE key, BYTE *input, DWORD insize, void *padding,
+@@ -322,6 +415,12 @@ SECURITY_STATUS WINAPI NCryptFinalizeKey(NCRYPT_KEY_HANDLE handle, DWORD flags)
+         return map_ntstatus(status);
+     }
+ 
++    if (object->key.name && (status = persist_key(&object->key)))
++    {
++        ERR("Error persisting key %#lx\n", status);
++        return map_ntstatus(status);
++    }
++
+     return ERROR_SUCCESS;
+ }
+ 
+@@ -333,6 +432,7 @@ SECURITY_STATUS WINAPI NCryptFreeBuffer(PVOID buf)
+ 
+ static SECURITY_STATUS free_key_object(struct key *key)
+ {
++    free(key->name);
+     return map_ntstatus( BCryptDestroyKey(key->bcrypt_key) );
+ }
+ 
+@@ -376,6 +476,7 @@ SECURITY_STATUS WINAPI NCryptFreeObject(NCRYPT_HANDLE handle)
+         free(object->properties[i].value);
+     }
+     free(object->properties);
++    object->magic = 0;
+     free(object);
+     return ret;
+ }
+@@ -544,15 +645,57 @@ SECURITY_STATUS WINAPI NCryptIsAlgSupported(NCRYPT_PROV_HANDLE provider, const W
+ 
+ BOOL WINAPI NCryptIsKeyHandle(NCRYPT_KEY_HANDLE hKey)
+ {
+-    FIXME("(%#Ix): stub\n", hKey);
+-    return FALSE;
++    struct object *object = (struct object *)hKey;
++    BOOL ret = FALSE;
++
++    TRACE("(%#Ix)\n", hKey);
++
++    if (!object) return FALSE;
++    __TRY
++    {
++        ret = object->magic == OBJECT_MAGIC && object->type == KEY;
++    }
++    __EXCEPT_PAGE_FAULT
++    {
++        ret = FALSE;
++    }
++    __ENDTRY
++    return ret;
+ }
+ 
+ SECURITY_STATUS WINAPI NCryptOpenKey(NCRYPT_PROV_HANDLE provider, NCRYPT_KEY_HANDLE *key,
+                                      const WCHAR *name, DWORD keyspec, DWORD flags)
+ {
+-    FIXME("(%#Ix, %p, %s, %#lx, %#lx): stub\n", provider, key, wine_dbgstr_w(name), keyspec, flags);
+-    return NTE_NOT_SUPPORTED;
++    struct persisted_key *stored;
++    SECURITY_STATUS status;
++    BYTE *blob = NULL;
++    DWORD size = 0;
++
++    TRACE("(%#Ix, %p, %s, %#lx, %#lx)\n", provider, key, wine_dbgstr_w(name), keyspec, flags);
++
++    if (!provider) return NTE_INVALID_HANDLE;
++    if (!key || !name) return NTE_INVALID_PARAMETER;
++
++    EnterCriticalSection(&persisted_keys_cs);
++    if ((stored = find_persisted_key(name)) && (blob = malloc(stored->size)))
++    {
++        memcpy(blob, stored->blob, stored->size);
++        size = stored->size;
++    }
++    LeaveCriticalSection(&persisted_keys_cs);
++    if (!stored) return NTE_BAD_KEYSET;
++    if (!blob) return NTE_NO_MEMORY;
++
++    status = NCryptImportKey(provider, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, key, blob, size, 0);
++    free(blob);
++    if (status) return status;
++
++    if (!(((struct object *)*key)->key.name = wcsdup(name)))
++    {
++        NCryptFreeObject(*key);
++        return NTE_NO_MEMORY;
++    }
++    return ERROR_SUCCESS;
+ }
+ 
+ SECURITY_STATUS WINAPI NCryptOpenStorageProvider(NCRYPT_PROV_HANDLE *provider, const WCHAR *name, DWORD flags)
+diff --git a/dlls/ncrypt/ncrypt_internal.h b/dlls/ncrypt/ncrypt_internal.h
+index 49284fc..0ced1b6 100644
+--- a/dlls/ncrypt/ncrypt_internal.h
++++ b/dlls/ncrypt/ncrypt_internal.h
+@@ -33,6 +33,7 @@ struct key
+ {
+     enum algid algid;
+     BCRYPT_KEY_HANDLE bcrypt_key;
++    WCHAR *name;
+ };
+ 
+ struct storage_provider
+@@ -52,8 +53,11 @@ struct object_property
+     void *value;
+ };
+ 
++#define OBJECT_MAGIC 0x6e637279 /* ncry */
++
+ struct object
+ {
++    DWORD magic;
+     enum object_type type;
+     LONG refs;
+     DWORD num_properties;
+diff --git a/dlls/ncrypt/tests/ncrypt.c b/dlls/ncrypt/tests/ncrypt.c
+index 53da3dc..25df547 100644
+--- a/dlls/ncrypt/tests/ncrypt.c
++++ b/dlls/ncrypt/tests/ncrypt.c
+@@ -20,6 +20,7 @@
+ #include <stdarg.h>
+ #include <windef.h>
+ #include <winbase.h>
++#include <wincrypt.h>
+ #include <ncrypt.h>
+ #include <bcrypt.h>
+ 
+@@ -840,6 +841,64 @@ static void test_NCryptExportKey(void)
+     NCryptFreeObject(prov);
+ }
+ 
++static void test_NCryptIsKeyHandle(void)
++{
++    NCRYPT_PROV_HANDLE prov;
++    NCRYPT_KEY_HANDLE key;
++    SECURITY_STATUS ret;
++
++    ok(!NCryptIsKeyHandle(0), "expected FALSE\n");
++
++    ret = NCryptOpenStorageProvider(&prov, NULL, 0);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    ok(!NCryptIsKeyHandle(prov), "expected FALSE for a provider handle\n");
++
++    ret = NCryptCreatePersistedKey(prov, &key, BCRYPT_RSA_ALGORITHM, NULL, 0, 0);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    ok(NCryptIsKeyHandle(key), "expected TRUE for a key handle\n");
++
++    NCryptFreeObject(key);
++    NCryptFreeObject(prov);
++}
++
++static void test_named_persisted_key(void)
++{
++    static const WCHAR name[] = L"wine_test_ncrypt_persisted_key";
++    BYTE blob[1024], blob2[1024];
++    NCRYPT_PROV_HANDLE prov;
++    NCRYPT_KEY_HANDLE key, key2;
++    SECURITY_STATUS ret;
++    DWORD size, size2;
++
++    ret = NCryptOpenStorageProvider(&prov, NULL, 0);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++
++    ret = NCryptCreatePersistedKey(prov, &key, BCRYPT_RSA_ALGORITHM, name, 0, NCRYPT_OVERWRITE_KEY_FLAG);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    ret = NCryptFinalizeKey(key, 0);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    ret = NCryptExportKey(key, 0, BCRYPT_RSAPUBLIC_BLOB, NULL, blob, sizeof(blob), &size, 0);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    NCryptFreeObject(key);
++
++    ret = NCryptOpenKey(prov, &key2, name, 0, 0);
++    ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    if (ret == ERROR_SUCCESS)
++    {
++        ret = NCryptExportKey(key2, 0, BCRYPT_RSAPUBLIC_BLOB, NULL, blob2, sizeof(blob2), &size2, 0);
++        ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++        ok(size2 == size && !memcmp(blob, blob2, size), "keys differ\n");
++
++        ret = NCryptDeleteKey(key2, 0);
++        ok(ret == ERROR_SUCCESS, "got %#lx\n", ret);
++    }
++
++    ret = NCryptOpenKey(prov, &key2, name, 0, 0);
++    ok(ret == NTE_BAD_KEYSET, "got %#lx\n", ret);
++
++    NCryptFreeObject(prov);
++}
++
+ START_TEST(ncrypt)
+ {
+     test_key_import_rsa();
+@@ -852,4 +911,6 @@ START_TEST(ncrypt)
+     test_NCryptIsAlgSupported();
+     test_NCryptEncrypt();
+     test_NCryptExportKey();
++    test_NCryptIsKeyHandle();
++    test_named_persisted_key();
+ }
+diff --git a/include/ncrypt.h b/include/ncrypt.h
+index 7a1769c..bd0a7c6 100644
+--- a/include/ncrypt.h
++++ b/include/ncrypt.h
+@@ -85,6 +85,7 @@ typedef ULONG_PTR NCRYPT_SECRET_HANDLE;
+ #define NCRYPT_KEY_PROTECTION_INTERFACE     0x00010004
+ 
+ #define NCRYPT_SILENT_FLAG 0x00000040
++#define NCRYPT_OVERWRITE_KEY_FLAG 0x00000080
+ 
+ #define NCRYPT_NO_PADDING_FLAG 0x00000001
+ #define NCRYPT_PAD_PKCS1_FLAG  0x00000002
+@@ -139,6 +140,7 @@ typedef ULONG_PTR NCRYPT_SECRET_HANDLE;
+ SECURITY_STATUS WINAPI NCryptCreatePersistedKey(NCRYPT_PROV_HANDLE, NCRYPT_KEY_HANDLE *, const WCHAR *, const WCHAR *,
+                                                 DWORD, DWORD);
+ SECURITY_STATUS WINAPI NCryptDecrypt(NCRYPT_KEY_HANDLE, BYTE *, DWORD, void *, BYTE *, DWORD, DWORD *, DWORD);
++SECURITY_STATUS WINAPI NCryptDeleteKey(NCRYPT_KEY_HANDLE, DWORD);
+ SECURITY_STATUS WINAPI NCryptEncrypt(NCRYPT_KEY_HANDLE, BYTE *, DWORD, void *, BYTE *, DWORD, DWORD *, DWORD);
+ SECURITY_STATUS WINAPI NCryptExportKey(NCRYPT_KEY_HANDLE, NCRYPT_KEY_HANDLE, const WCHAR *, NCryptBufferDesc *, BYTE *,
+                                        DWORD, DWORD *, DWORD);
+@@ -148,6 +150,7 @@ SECURITY_STATUS WINAPI NCryptGetProperty(NCRYPT_HANDLE, const WCHAR *, BYTE *, D
+ SECURITY_STATUS WINAPI NCryptImportKey(NCRYPT_PROV_HANDLE, NCRYPT_KEY_HANDLE, const WCHAR *, NCryptBufferDesc *,
+                                        NCRYPT_KEY_HANDLE *, BYTE *, DWORD, DWORD);
+ SECURITY_STATUS WINAPI NCryptIsAlgSupported(NCRYPT_PROV_HANDLE, const WCHAR *, DWORD);
++BOOL WINAPI NCryptIsKeyHandle(NCRYPT_KEY_HANDLE);
+ SECURITY_STATUS WINAPI NCryptOpenKey(NCRYPT_PROV_HANDLE, NCRYPT_KEY_HANDLE *, const WCHAR *, DWORD, DWORD);
+ SECURITY_STATUS WINAPI NCryptOpenStorageProvider(NCRYPT_PROV_HANDLE *, const WCHAR *, DWORD);
+ SECURITY_STATUS WINAPI NCryptSetProperty(NCRYPT_HANDLE, const WCHAR *, BYTE *, DWORD, DWORD);
+-- 
+2.43.0
+

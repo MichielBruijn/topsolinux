@@ -1,0 +1,184 @@
+From 9cd80afa96d94604e29ad0e84c1c16635ad5830f Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:39 +0200
+Subject: [PATCH 10/49] combase: Provide IServerSecurity for incoming calls.
+
+CoGetCallContext() returned RPC_E_CALL_COMPLETE inside server methods, so
+servers calling CoImpersonateClient() (e.g. WMI providers) failed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/combase/rpc.c | 141 +++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 141 insertions(+)
+
+diff --git a/dlls/combase/rpc.c b/dlls/combase/rpc.c
+index a11517f..5b782f5 100644
+--- a/dlls/combase/rpc.c
++++ b/dlls/combase/rpc.c
+@@ -1880,6 +1880,136 @@ static HRESULT unmarshal_ORPCTHAT(RPC_MESSAGE *msg, ORPCTHAT *orpcthat,
+     return S_OK;
+ }
+ 
++struct server_call_context
++{
++    IServerSecurity IServerSecurity_iface;
++    LONG refcount;
++    RPC_BINDING_HANDLE binding;
++    BOOL impersonating;
++};
++
++static inline struct server_call_context *impl_from_IServerSecurity(IServerSecurity *iface)
++{
++    return CONTAINING_RECORD(iface, struct server_call_context, IServerSecurity_iface);
++}
++
++static HRESULT WINAPI server_call_context_QueryInterface(IServerSecurity *iface, REFIID riid, void **obj)
++{
++    TRACE("%p, %s, %p\n", iface, debugstr_guid(riid), obj);
++
++    if (IsEqualIID(riid, &IID_IServerSecurity) || IsEqualIID(riid, &IID_IUnknown))
++    {
++        *obj = iface;
++        IServerSecurity_AddRef(iface);
++        return S_OK;
++    }
++
++    *obj = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI server_call_context_AddRef(IServerSecurity *iface)
++{
++    struct server_call_context *context = impl_from_IServerSecurity(iface);
++    return InterlockedIncrement(&context->refcount);
++}
++
++static ULONG WINAPI server_call_context_Release(IServerSecurity *iface)
++{
++    struct server_call_context *context = impl_from_IServerSecurity(iface);
++    ULONG refcount = InterlockedDecrement(&context->refcount);
++
++    if (!refcount)
++    {
++        if (context->impersonating) RevertToSelf();
++        free(context);
++    }
++    return refcount;
++}
++
++static HRESULT WINAPI server_call_context_QueryBlanket(IServerSecurity *iface, DWORD *authn_service,
++        DWORD *authz_service, OLECHAR **servername, DWORD *authn_level, DWORD *imp_level,
++        void **privs, DWORD *capabilities)
++{
++    TRACE("%p, %p, %p, %p, %p, %p, %p, %p\n", iface, authn_service, authz_service, servername,
++          authn_level, imp_level, privs, capabilities);
++
++    /* FIXME: local calls are not authenticated, report what a local client would use */
++    if (authn_service) *authn_service = RPC_C_AUTHN_WINNT;
++    if (authz_service) *authz_service = RPC_C_AUTHZ_NONE;
++    if (servername) *servername = NULL;
++    if (authn_level) *authn_level = RPC_C_AUTHN_LEVEL_PKT_PRIVACY;
++    if (imp_level) *imp_level = RPC_C_IMP_LEVEL_IMPERSONATE;
++    if (privs) *privs = NULL;
++    if (capabilities) *capabilities = EOAC_NONE;
++    return S_OK;
++}
++
++static HRESULT WINAPI server_call_context_ImpersonateClient(IServerSecurity *iface)
++{
++    struct server_call_context *context = impl_from_IServerSecurity(iface);
++
++    TRACE("%p\n", iface);
++
++    if (context->binding && RpcImpersonateClient(context->binding) == RPC_S_OK)
++    {
++        context->impersonating = TRUE;
++        return S_OK;
++    }
++
++    /* Client and server run as the same user, impersonate ourselves instead. */
++    if (!ImpersonateSelf(SecurityImpersonation))
++        return HRESULT_FROM_WIN32(GetLastError());
++    context->impersonating = TRUE;
++    return S_OK;
++}
++
++static HRESULT WINAPI server_call_context_RevertToSelf(IServerSecurity *iface)
++{
++    struct server_call_context *context = impl_from_IServerSecurity(iface);
++
++    TRACE("%p\n", iface);
++
++    if (context->impersonating)
++    {
++        RevertToSelf();
++        context->impersonating = FALSE;
++    }
++    return S_OK;
++}
++
++static BOOL WINAPI server_call_context_IsImpersonating(IServerSecurity *iface)
++{
++    struct server_call_context *context = impl_from_IServerSecurity(iface);
++
++    TRACE("%p\n", iface);
++
++    return context->impersonating;
++}
++
++static const IServerSecurityVtbl server_call_context_vtbl =
++{
++    server_call_context_QueryInterface,
++    server_call_context_AddRef,
++    server_call_context_Release,
++    server_call_context_QueryBlanket,
++    server_call_context_ImpersonateClient,
++    server_call_context_RevertToSelf,
++    server_call_context_IsImpersonating,
++};
++
++static struct server_call_context *create_server_call_context(RPC_BINDING_HANDLE binding)
++{
++    struct server_call_context *context;
++
++    if (!(context = malloc(sizeof(*context)))) return NULL;
++    context->IServerSecurity_iface.lpVtbl = &server_call_context_vtbl;
++    context->refcount = 1;
++    context->binding = binding;
++    context->impersonating = FALSE;
++    return context;
++}
++
+ void rpc_execute_call(struct dispatch_params *params)
+ {
+     struct message_state *message_state = NULL;
+@@ -1889,6 +2019,8 @@ void rpc_execute_call(struct dispatch_params *params)
+     ORPC_EXTENT_ARRAY orpc_ext_array;
+     WIRE_ORPC_EXTENT *first_wire_orpc_extent;
+     GUID old_causality_id;
++    struct server_call_context *call_context;
++    IUnknown *old_call_context;
+     struct tlsdata *tlsdata;
+     struct apartment *apt;
+ 
+@@ -1984,7 +2116,16 @@ void rpc_execute_call(struct dispatch_params *params)
+     old_causality_id = tlsdata->causality_id;
+     tlsdata->causality_id = orpcthis.cid;
+     tlsdata->pending_call_count_server++;
++    call_context = create_server_call_context(message_state->bypass_rpcrt ? NULL : message_state->binding_handle);
++    old_call_context = tlsdata->call_state;
++    if (call_context) tlsdata->call_state = (IUnknown *)&call_context->IServerSecurity_iface;
+     params->hr = IRpcStubBuffer_Invoke(params->stub, params->msg, params->chan);
++    tlsdata->call_state = old_call_context;
++    if (call_context)
++    {
++        IServerSecurity_RevertToSelf(&call_context->IServerSecurity_iface);
++        IServerSecurity_Release(&call_context->IServerSecurity_iface);
++    }
+     tlsdata->pending_call_count_server--;
+     tlsdata->causality_id = old_causality_id;
+ 
+-- 
+2.43.0
+

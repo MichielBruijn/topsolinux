@@ -1,0 +1,182 @@
+From f89cf0e033ebbf8c3106b24c8f8600410f15f9d6 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:43:25 +0200
+Subject: [PATCH 24/49] server: Set the default owner of new tokens like
+ Windows.
+
+The default owner of limited tokens is the user and the one of full and
+default elevated admin tokens is BUILTIN\Administrators, instead of the
+primary group. Objects created by services, e.g. the named pipes of
+SQL Server, need an owner that is present in the token of their clients.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/advapi32/tests/security.c | 42 +++++++++++++++++++++++++++-------
+ server/token.c                 | 28 +++++++++++++++++------
+ 2 files changed, 55 insertions(+), 15 deletions(-)
+
+diff --git a/dlls/advapi32/tests/security.c b/dlls/advapi32/tests/security.c
+index 49f6374..05165e9 100644
+--- a/dlls/advapi32/tests/security.c
++++ b/dlls/advapi32/tests/security.c
+@@ -1011,10 +1011,8 @@ cleanup:
+     SetLastError(0xdeadbeef);
+     rc = AccessCheck(sd, token, FILE_WRITE_DATA, &mapping, &priv_set, &priv_set_len, &granted, &status);
+     ok(rc, "AccessCheck error %ld\n", GetLastError());
+-todo_wine {
+     ok(status == 1, "expected 1, got %d\n", status);
+     ok(granted == FILE_WRITE_DATA, "expected FILE_WRITE_DATA, got %#lx\n", granted);
+-}
+     granted = 0xdeadbeef;
+     status = 0xdeadbeef;
+     SetLastError(0xdeadbeef);
+@@ -1052,28 +1050,22 @@ todo_wine {
+     SetLastError(0xdeadbeef);
+     rc = AccessCheck(sd, token, FILE_DELETE_CHILD, &mapping, &priv_set, &priv_set_len, &granted, &status);
+     ok(rc, "AccessCheck error %ld\n", GetLastError());
+-todo_wine {
+     ok(status == 1, "expected 1, got %d\n", status);
+     ok(granted == FILE_DELETE_CHILD, "expected FILE_DELETE_CHILD, got %#lx\n", granted);
+-}
+     granted = 0xdeadbeef;
+     status = 0xdeadbeef;
+     SetLastError(0xdeadbeef);
+     rc = AccessCheck(sd, token, 0x1ff, &mapping, &priv_set, &priv_set_len, &granted, &status);
+     ok(rc, "AccessCheck error %ld\n", GetLastError());
+-todo_wine {
+     ok(status == 1, "expected 1, got %d\n", status);
+     ok(granted == 0x1ff, "expected 0x1ff, got %#lx\n", granted);
+-}
+     granted = 0xdeadbeef;
+     status = 0xdeadbeef;
+     SetLastError(0xdeadbeef);
+     rc = AccessCheck(sd, token, FILE_ALL_ACCESS, &mapping, &priv_set, &priv_set_len, &granted, &status);
+     ok(rc, "AccessCheck error %ld\n", GetLastError());
+-todo_wine {
+     ok(status == 1, "expected 1, got %d\n", status);
+     ok(granted == FILE_ALL_ACCESS, "expected FILE_ALL_ACCESS, got %#lx\n", granted);
+-}
+     SetLastError(0xdeadbeef);
+     rc = DeleteFileA(file);
+     ok(!rc, "DeleteFile should fail\n");
+@@ -8747,6 +8739,39 @@ static void test_token_restricted_sids(void)
+     CloseHandle( token );
+ }
+ 
++static void test_token_default_owner(void)
++{
++    TOKEN_ELEVATION_TYPE type;
++    TOKEN_OWNER *owner;
++    TOKEN_USER *user;
++    PSID admins;
++    HANDLE token;
++    DWORD size;
++    BOOL ret, is_admin;
++
++    ret = OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token );
++    ok( ret, "got error %lu\n", GetLastError() );
++    ret = GetTokenInformation( token, TokenElevationType, &type, sizeof(type), &size );
++    ok( ret, "got error %lu\n", GetLastError() );
++    owner = get_alloc_token_owner( token );
++    user = get_alloc_token_user( token );
++    ret = ConvertStringSidToSidA( "BA", &admins );
++    ok( ret, "got error %lu\n", GetLastError() );
++    CheckTokenMembership( NULL, admins, &is_admin );
++
++    /* limited tokens and tokens of non-administrators are owned by the user,
++     * elevated administrator tokens by the administrators group */
++    if (type == TokenElevationTypeLimited || !is_admin)
++        ok( EqualSid( owner->Owner, user->User.Sid ), "owner is not the user\n" );
++    else
++        ok( EqualSid( owner->Owner, admins ), "owner is not the administrators group\n" );
++
++    LocalFree( admins );
++    free( user );
++    free( owner );
++    CloseHandle( token );
++}
++
+ START_TEST(security)
+ {
+     init();
+@@ -8820,6 +8845,7 @@ START_TEST(security)
+     test_IsValidSecurityDescriptor();
+     test_window_security();
+     test_token_restricted_sids();
++    test_token_default_owner();
+ 
+     /* Must be the last test, modifies process token */
+     test_token_security_descriptor();
+diff --git a/server/token.c b/server/token.c
+index ff8650f..8fb136a 100644
+--- a/server/token.c
++++ b/server/token.c
+@@ -495,6 +495,8 @@ static struct token *create_token( unsigned int primary, unsigned int session_id
+             release_object( token );
+             return NULL;
+         }
++        /* like on Windows, objects are owned by the user by default */
++        token->owner = token->user;
+ 
+         /* copy groups */
+         for (i = 0; i < group_count; i++)
+@@ -512,10 +514,7 @@ static struct token *create_token( unsigned int primary, unsigned int session_id
+             list_add_tail( &token->groups, &group->entry );
+ 
+             if (primary_group == i)
+-            {
+-                token->owner = &group->sid;
+                 token->primary_group = &group->sid;
+-            }
+         }
+ 
+         /* copy privileges */
+@@ -611,10 +610,9 @@ struct token *token_duplicate( struct token *src_token, unsigned primary,
+         }
+         list_add_tail( &token->groups, &newgroup->entry );
+         if (src_token->primary_group == &group->sid)
+-        {
+-            token->owner = &newgroup->sid;
+             token->primary_group = &newgroup->sid;
+-        }
++        if (src_token->owner == &group->sid)
++            token->owner = &newgroup->sid;
+     }
+     assert( token->primary_group );
+ 
+@@ -741,7 +739,8 @@ struct token *token_create_admin( unsigned primary, int impersonation_level, int
+     /* on Windows, this value changes every time the user logs on */
+     struct sid logon_sid = { SID_REVISION, 3, SECURITY_NT_AUTHORITY, { SECURITY_LOGON_IDS_RID, 0, 0 /* FIXME: should be randomly generated when tokens are inherited by new processes */ }};
+     const struct sid *user_sid = security_unix_uid_to_sid( getuid() );
+-    struct acl *default_dacl = create_default_dacl( &domain_users_sid );
++    /* like on Windows, the default DACL grants access to the default owner */
++    struct acl *default_dacl = create_default_dacl( elevation == TokenElevationTypeLimited ? user_sid : &alias_admins_sid );
+     const struct luid_attr admin_privs[] =
+     {
+         { SeChangeNotifyPrivilege, SE_PRIVILEGE_ENABLED },
+@@ -786,6 +785,21 @@ struct token *token_create_admin( unsigned primary, int impersonation_level, int
+     /* we really need a primary group */
+     assert( token->primary_group );
+ 
++    /* like on Windows, objects created with an elevated token are owned by the administrators */
++    if (elevation != TokenElevationTypeLimited)
++    {
++        struct group *group;
++
++        LIST_FOR_EACH_ENTRY( group, &token->groups, struct group, entry )
++        {
++            if (equal_sid( &group->sid, &alias_admins_sid ))
++            {
++                token->owner = &group->sid;
++                break;
++            }
++        }
++    }
++
+     /* Assign a high security label to the token. The default would be medium
+      * but Wine provides admin access to all applications right now so high
+      * makes more sense for the time being. */
+-- 
+2.43.0
+

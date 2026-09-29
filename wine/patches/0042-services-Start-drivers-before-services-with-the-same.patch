@@ -1,0 +1,38 @@
+From 670988ed0a31a9ba74c3d7a29e28596dbe9626e3 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 16:06:24 +0200
+Subject: [PATCH 42/49] services: Start drivers before services with the same
+ start type.
+
+Services such as the Sentinel RMS license manager query the network
+adapters when they start and crashed when they were started before the
+nsiproxy driver. Windows loads drivers before starting services.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ programs/services/services.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/programs/services/services.c b/programs/services/services.c
+index a344698..0d28a97 100644
+--- a/programs/services/services.c
++++ b/programs/services/services.c
+@@ -296,8 +296,14 @@ static int __cdecl compare_service(const void *a, const void *b)
+ {
+     struct service_entry *service_a = *(struct service_entry **)a;
+     struct service_entry *service_b = *(struct service_entry **)b;
++    BOOL driver_a = !!(service_a->config.dwServiceType & (SERVICE_KERNEL_DRIVER | SERVICE_FILE_SYSTEM_DRIVER));
++    BOOL driver_b = !!(service_b->config.dwServiceType & (SERVICE_KERNEL_DRIVER | SERVICE_FILE_SYSTEM_DRIVER));
++
+     if (service_a->config.dwStartType != service_b->config.dwStartType)
+         return service_a->config.dwStartType - service_b->config.dwStartType;
++    /* like on Windows, drivers are loaded before the services that may use them */
++    if (driver_a != driver_b)
++        return driver_b - driver_a;
+     return service_a->config.dwTagId - service_b->config.dwTagId;
+ }
+ 
+-- 
+2.43.0
+

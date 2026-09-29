@@ -1,0 +1,115 @@
+From 30b2de07ff2070b6bc5dc2577d7d618bc3f47261 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:41:33 +0200
+Subject: [PATCH 12/49] ntdll: Implement RtlCheckPortableOperatingSystem().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ntdll/ntdll.spec  |  1 +
+ dlls/ntdll/process.c   | 25 +++++++++++++++++++++++++
+ dlls/ntdll/tests/rtl.c | 22 ++++++++++++++++++++++
+ include/winternl.h     |  1 +
+ 4 files changed, 49 insertions(+)
+
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index ae50211..ef092c6 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -544,6 +544,7 @@
+ @ stdcall RtlCharToInteger(ptr long ptr)
+ # @ stub RtlCheckForOrphanedCriticalSections
+ # @ stub RtlCheckProcessParameters
++@ stdcall RtlCheckPortableOperatingSystem(ptr)
+ @ stdcall RtlCheckRegistryKey(long ptr)
+ @ stdcall RtlClearAllBits(ptr)
+ @ stdcall RtlClearBits(ptr long long)
+diff --git a/dlls/ntdll/process.c b/dlls/ntdll/process.c
+index 964c1e0..8c5826b 100644
+--- a/dlls/ntdll/process.c
++++ b/dlls/ntdll/process.c
+@@ -176,6 +176,31 @@ NTSTATUS WINAPI RtlGetImageFileMachines( const WCHAR *filename, USHORT *machines
+ }
+ 
+ 
++/**********************************************************************
++ *           RtlCheckPortableOperatingSystem  (NTDLL.@)
++ */
++NTSTATUS WINAPI RtlCheckPortableOperatingSystem( BOOLEAN *portable )
++{
++    static const WCHAR controlW[] = L"\\Registry\\Machine\\System\\CurrentControlSet\\Control";
++    char buffer[offsetof( KEY_VALUE_PARTIAL_INFORMATION, Data[sizeof(DWORD)] )];
++    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
++    UNICODE_STRING name = RTL_CONSTANT_STRING( controlW ), value = RTL_CONSTANT_STRING( L"PortableOperatingSystem" );
++    OBJECT_ATTRIBUTES attr;
++    NTSTATUS status;
++    HANDLE key;
++    DWORD size;
++
++    InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, 0, NULL );
++    if ((status = NtOpenKey( &key, KEY_QUERY_VALUE, &attr ))) return STATUS_NOT_FOUND;
++    status = NtQueryValueKey( key, &value, KeyValuePartialInformation, buffer, sizeof(buffer), &size );
++    NtClose( key );
++    if (status || info->Type != REG_DWORD || info->DataLength != sizeof(DWORD)) return STATUS_NOT_FOUND;
++    if (!portable) return STATUS_INVALID_PARAMETER;
++    *portable = !!*(DWORD *)info->Data;
++    return STATUS_SUCCESS;
++}
++
++
+ /**********************************************************************
+  *           RtlWow64GetSharedInfoProcess  (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/tests/rtl.c b/dlls/ntdll/tests/rtl.c
+index 35daabb..da46ccd 100644
+--- a/dlls/ntdll/tests/rtl.c
++++ b/dlls/ntdll/tests/rtl.c
+@@ -5617,6 +5617,27 @@ static void test_RtlGetImageFileMachines(void)
+     ok( status == STATUS_OBJECT_NAME_NOT_FOUND, "got %#lx\n", status );
+ }
+ 
++static void test_RtlCheckPortableOperatingSystem(void)
++{
++    NTSTATUS (WINAPI *pRtlCheckPortableOperatingSystem)(BOOLEAN *);
++    NTSTATUS status;
++    BOOLEAN portable;
++
++    pRtlCheckPortableOperatingSystem = (void *)GetProcAddress( hntdll, "RtlCheckPortableOperatingSystem" );
++    if (!pRtlCheckPortableOperatingSystem)
++    {
++        win_skip( "RtlCheckPortableOperatingSystem is not available\n" );
++        return;
++    }
++
++    portable = 0xcc;
++    status = pRtlCheckPortableOperatingSystem( &portable );
++    /* the registry value normally doesn't exist */
++    ok( status == STATUS_NOT_FOUND || !status, "got %#lx\n", status );
++    if (status) ok( portable == 0xcc, "got %u\n", portable );
++    else ok( !portable, "got %u\n", portable );
++}
++
+ START_TEST(rtl)
+ {
+     InitFunctionPtrs();
+@@ -5690,4 +5711,5 @@ START_TEST(rtl)
+     test_RtlDeriveCapabilitySidsFromName();
+     test_pointer_encoding();
+     test_RtlGetImageFileMachines();
++    test_RtlCheckPortableOperatingSystem();
+ }
+diff --git a/include/winternl.h b/include/winternl.h
+index 8b84658..23d1566 100644
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -5085,6 +5085,7 @@ NTSYSAPI BOOLEAN   WINAPI RtlAreBitsSet(PCRTL_BITMAP,ULONG,ULONG);
+ NTSYSAPI BOOLEAN   WINAPI RtlAreBitsClear(PCRTL_BITMAP,ULONG,ULONG);
+ NTSYSAPI BOOLEAN   WINAPI RtlBarrier(RTL_BARRIER*,ULONG);
+ NTSYSAPI NTSTATUS  WINAPI RtlCharToInteger(PCSZ,ULONG,PULONG);
++NTSYSAPI NTSTATUS  WINAPI RtlCheckPortableOperatingSystem(BOOLEAN*);
+ NTSYSAPI NTSTATUS  WINAPI RtlCheckRegistryKey(ULONG, PWSTR);
+ NTSYSAPI void      WINAPI RtlClearAllBits(PRTL_BITMAP);
+ NTSYSAPI void      WINAPI RtlClearBits(PRTL_BITMAP,ULONG,ULONG);
+-- 
+2.43.0
+

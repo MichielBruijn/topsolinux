@@ -1,0 +1,92 @@
+From 0cf9f32922c758a1e8163ce1a601fadb2afd42ab Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 29 Sep 2026 00:39:12 +0200
+Subject: [PATCH 49/49] tdxnavlib: Keep the pivot for a whole motion and follow
+ the application frame timing.
+
+Query the pivot once when a motion starts instead of on every frame, do
+not start a new frame while the application is still handling the
+previous one, and when the application is the frame timing source only
+send a new view once it reports a new frame time.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/tdxnavlib/main.c | 23 +++++++++++++++++++++--
+ 1 file changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index 6bff203..6dccf14 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -108,6 +108,11 @@ struct navlib
+     BOOL active;
+     HWND hwnd;
+     BOOL moving;
++    BOOL navigating;
++    BOOL have_pivot;
++    double pivot[3];
++    BOOL app_timing;
++    double frame_time;
+     DWORD last_tick;
+ };
+ 
+@@ -269,7 +274,7 @@ static void mat_vec( double m[3][3], const double v[3], double out[3] )
+     memcpy( out, tmp, sizeof(tmp) );
+ }
+ 
+-static BOOL get_pivot( struct navlib *nl, const struct frame *cam, double pivot[3] )
++static BOOL get_pivot( struct navlib *nl, double pivot[3] )
+ {
+     value_t value;
+ 
+@@ -308,9 +313,10 @@ static void navigate( struct navlib *nl, const int in[6], double dt )
+     if (!perspective && get_value( nl, "view.extents", &extents ) && extents.type == box_type)
+         have_extents = TRUE;
+ 
+-    have_pivot = get_pivot( nl, &cam, pivot );
++    have_pivot = nl->have_pivot;
+     if (have_pivot)
+     {
++        memcpy( pivot, nl->pivot, sizeof(pivot) );
+         for (i = 0; i < 3; i++) rel[i] = cam.pos[i] - pivot[i];
+         dist = sqrt( rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2] );
+     }
+@@ -370,6 +376,7 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+     struct navlib *nl;
+     int in[6];
+     DWORD now, last;
++    value_t frame;
+     BOOL idle;
+ 
+     if (msg != WM_NAVLIB_MOTION && msg != WM_TIMER) return DefWindowProcW( hwnd, msg, wparam, lparam );
+@@ -389,6 +396,10 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+         if (!nl->moving && !idle)
+         {
+             load_settings();
++            nl->have_pivot = get_pivot( nl, nl->pivot );
++            nl->app_timing = get_value( nl, "frame.timingSource", &frame ) && frame.type == long_type && frame.l == 1;
++            nl->frame_time = -1.0;
++            TRACE( "motion start, application timing %d\n", nl->app_timing );
+             nl->moving = TRUE;
+             nl->last_tick = now;
+             set_bool( nl, "motion", TRUE );
+@@ -405,7 +416,15 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+         set_bool( nl, "motion", FALSE );
+         return 0;
+     }
++    if (nl->navigating) return 0;
++    if (!idle && nl->app_timing && get_value( nl, "frame.time", &frame ) && frame.type == double_type)
++    {
++        if (frame.d == nl->frame_time) return 0;
++        nl->frame_time = frame.d;
++    }
++    nl->navigating = TRUE;
+     if (!idle) navigate( nl, in, min( now - nl->last_tick, 100 ) / 1000.0 );
++    nl->navigating = FALSE;
+     nl->last_tick = now;
+     return 0;
+ }
+-- 
+2.43.0
+

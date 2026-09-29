@@ -1,0 +1,258 @@
+From 6f9c86592c6efbb7a2ee6c4aac0c957d8d364ce2 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:39 +0200
+Subject: [PATCH 06/49] combase: Implement the ContextSwitcher class.
+
+CLSID_ContextSwitcher objects expose IContextCallback for the current object
+context; the WMI service creates one when handling client calls.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/combase/combase.c     | 121 ++++++++++++++++++++++++++++++++++++-
+ dlls/ole32/tests/compobj.c |  41 +++++++++++++
+ include/cguid.h            |   1 +
+ libs/uuid/uuid.c           |   1 +
+ 4 files changed, 161 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/combase/combase.c b/dlls/combase/combase.c
+index 94e256f..67cfcad 100644
+--- a/dlls/combase/combase.c
++++ b/dlls/combase/combase.c
+@@ -540,10 +540,124 @@ static const IClassFactoryVtbl global_options_factory_vtbl =
+ 
+ static IClassFactory global_options_factory = { &global_options_factory_vtbl };
+ 
++struct context_switcher
++{
++    IContextCallback IContextCallback_iface;
++    LONG refcount;
++    IContextCallback *context;
++};
++
++static inline struct context_switcher *impl_from_context_switcher(IContextCallback *iface)
++{
++    return CONTAINING_RECORD(iface, struct context_switcher, IContextCallback_iface);
++}
++
++static HRESULT WINAPI context_switcher_QueryInterface(IContextCallback *iface, REFIID riid, void **ppv)
++{
++    TRACE("%p, %s, %p.\n", iface, debugstr_guid(riid), ppv);
++
++    if (IsEqualIID(&IID_IContextCallback, riid) || IsEqualIID(&IID_IUnknown, riid))
++    {
++        *ppv = iface;
++        IContextCallback_AddRef(iface);
++        return S_OK;
++    }
++
++    FIXME("Unsupported interface %s.\n", debugstr_guid(riid));
++    *ppv = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI context_switcher_AddRef(IContextCallback *iface)
++{
++    struct context_switcher *switcher = impl_from_context_switcher(iface);
++    LONG refcount = InterlockedIncrement(&switcher->refcount);
++
++    TRACE("%p, refcount %ld.\n", iface, refcount);
++
++    return refcount;
++}
++
++static ULONG WINAPI context_switcher_Release(IContextCallback *iface)
++{
++    struct context_switcher *switcher = impl_from_context_switcher(iface);
++    LONG refcount = InterlockedDecrement(&switcher->refcount);
++
++    TRACE("%p, refcount %ld.\n", iface, refcount);
++
++    if (!refcount)
++    {
++        IContextCallback_Release(switcher->context);
++        free(switcher);
++    }
++
++    return refcount;
++}
++
++static HRESULT WINAPI context_switcher_ContextCallback(IContextCallback *iface, PFNCONTEXTCALL callback,
++        ComCallData *param, REFIID riid, int method, IUnknown *punk)
++{
++    struct context_switcher *switcher = impl_from_context_switcher(iface);
++
++    TRACE("%p, %p, %p, %s, %d, %p.\n", iface, callback, param, debugstr_guid(riid), method, punk);
++
++    return IContextCallback_ContextCallback(switcher->context, callback, param, riid, method, punk);
++}
++
++static const IContextCallbackVtbl context_switcher_vtbl =
++{
++    context_switcher_QueryInterface,
++    context_switcher_AddRef,
++    context_switcher_Release,
++    context_switcher_ContextCallback,
++};
++
++static HRESULT WINAPI context_switcher_CreateInstance(IClassFactory *iface, IUnknown *outer, REFIID riid, void **ppv)
++{
++    struct context_switcher *object;
++    HRESULT hr;
++
++    TRACE("%p, %s, %p.\n", outer, debugstr_guid(riid), ppv);
++
++    *ppv = NULL;
++
++    if (outer)
++        return CLASS_E_NOAGGREGATION;
++
++    if (!(object = malloc(sizeof(*object))))
++        return E_OUTOFMEMORY;
++
++    if (FAILED(hr = CoGetObjectContext(&IID_IContextCallback, (void **)&object->context)))
++    {
++        free(object);
++        return hr;
++    }
++
++    object->IContextCallback_iface.lpVtbl = &context_switcher_vtbl;
++    object->refcount = 1;
++
++    hr = IContextCallback_QueryInterface(&object->IContextCallback_iface, riid, ppv);
++    IContextCallback_Release(&object->IContextCallback_iface);
++    return hr;
++}
++
++static const IClassFactoryVtbl context_switcher_factory_vtbl =
++{
++    class_factory_QueryInterface,
++    class_factory_AddRef,
++    class_factory_Release,
++    context_switcher_CreateInstance,
++    class_factory_LockServer
++};
++
++static IClassFactory context_switcher_factory = { &context_switcher_factory_vtbl };
++
+ static HRESULT get_builtin_class_factory(REFCLSID rclsid, REFIID riid, void **obj)
+ {
+     if (IsEqualCLSID(rclsid, &CLSID_GlobalOptions))
+         return IClassFactory_QueryInterface(&global_options_factory, riid, obj);
++    if (IsEqualCLSID(rclsid, &CLSID_ContextSwitcher))
++        return IClassFactory_QueryInterface(&context_switcher_factory, riid, obj);
+     return E_UNEXPECTED;
+ }
+ 
+@@ -1747,12 +1861,13 @@ static HRESULT com_get_class_object(REFCLSID rclsid, DWORD clscontext,
+     {
+         if (IsEqualCLSID(rclsid, &CLSID_InProcFreeMarshaler) ||
+                 IsEqualCLSID(rclsid, &CLSID_GlobalOptions) ||
++                IsEqualCLSID(rclsid, &CLSID_ContextSwitcher) ||
+                 (!(clscontext & CLSCTX_APPCONTAINER) && IsEqualCLSID(rclsid, &CLSID_ManualResetEvent)) ||
+                 IsEqualCLSID(rclsid, &CLSID_StdGlobalInterfaceTable))
+         {
+             apartment_release(apt);
+ 
+-            if (IsEqualCLSID(rclsid, &CLSID_GlobalOptions))
++            if (IsEqualCLSID(rclsid, &CLSID_GlobalOptions) || IsEqualCLSID(rclsid, &CLSID_ContextSwitcher))
+                 return get_builtin_class_factory(rclsid, riid, obj);
+             else
+                 return Ole32DllGetClassObject(rclsid, riid, obj);
+@@ -3633,8 +3748,8 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **obj)
+ 
+     *obj = NULL;
+ 
+-    if (IsEqualCLSID(rclsid, &CLSID_GlobalOptions))
+-        return IClassFactory_QueryInterface(&global_options_factory, riid, obj);
++    if (IsEqualCLSID(rclsid, &CLSID_GlobalOptions) || IsEqualCLSID(rclsid, &CLSID_ContextSwitcher))
++        return get_builtin_class_factory(rclsid, riid, obj);
+ 
+     return CLASS_E_CLASSNOTAVAILABLE;
+ }
+diff --git a/dlls/ole32/tests/compobj.c b/dlls/ole32/tests/compobj.c
+index b4e12b3..bb39699 100644
+--- a/dlls/ole32/tests/compobj.c
++++ b/dlls/ole32/tests/compobj.c
+@@ -4268,6 +4268,46 @@ static void test_GlobalOptions(void)
+     CoUninitialize();
+ }
+ 
++static BOOL context_switcher_called;
++
++static HRESULT WINAPI context_switcher_cb(ComCallData *data)
++{
++    context_switcher_called = TRUE;
++    ok(data->dwDispid == 0xabc, "got %#lx\n", data->dwDispid);
++    return 0x12345;
++}
++
++static void test_ContextSwitcher(void)
++{
++    IContextCallback *callback;
++    ComCallData data = {0};
++    IUnknown *unk;
++    HRESULT hr;
++
++    CoInitialize(NULL);
++
++    hr = CoCreateInstance(&CLSID_ContextSwitcher, NULL, CLSCTX_INPROC_SERVER, &IID_IContextCallback,
++                          (void **)&callback);
++    ok(hr == S_OK, "got %#lx\n", hr);
++    if (FAILED(hr))
++    {
++        CoUninitialize();
++        return;
++    }
++
++    data.dwDispid = 0xabc;
++    hr = IContextCallback_ContextCallback(callback, context_switcher_cb, &data, &IID_IUnknown, 2, NULL);
++    ok(hr == 0x12345, "got %#lx\n", hr);
++    ok(context_switcher_called, "callback not called\n");
++    IContextCallback_Release(callback);
++
++    hr = CoCreateInstance(&CLSID_ContextSwitcher, (IUnknown *)0xdeadbeef, CLSCTX_INPROC_SERVER, &IID_IUnknown,
++                          (void **)&unk);
++    ok(hr == CLASS_E_NOAGGREGATION, "got %#lx\n", hr);
++
++    CoUninitialize();
++}
++
+ static void init_funcs(void)
+ {
+     HMODULE hOle32 = GetModuleHandleA("ole32");
+@@ -4729,6 +4769,7 @@ START_TEST(compobj)
+     test_IInitializeSpy(TRUE);
+     test_CoGetInstanceFromFile();
+     test_GlobalOptions();
++    test_ContextSwitcher();
+     test_implicit_mta();
+     test_CoGetCurrentProcess();
+     test_mta_usage();
+diff --git a/include/cguid.h b/include/cguid.h
+index bacf64c..c141924 100644
+--- a/include/cguid.h
++++ b/include/cguid.h
+@@ -100,6 +100,7 @@ extern const CLSID CLSID_Picture_Metafile;
+ extern const CLSID CLSID_Picture_EnhMetafile;
+ extern const CLSID CLSID_Picture_Dib;
+ extern const CLSID CLSID_GlobalOptions;
++extern const CLSID CLSID_ContextSwitcher;
+ extern const GUID GUID_TRISTATE;
+ 
+ 
+diff --git a/libs/uuid/uuid.c b/libs/uuid/uuid.c
+index d1fef42..4f194eb 100644
+--- a/libs/uuid/uuid.c
++++ b/libs/uuid/uuid.c
+@@ -143,6 +143,7 @@ DEFINE_GUID(CLSID_ManualResetEvent,       0x0000032c,0x0000,0x0000,0xc0,0x00,0x0
+ DEFINE_GUID(CLSID_SynchronizeContainer,   0x0000032d,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);
+ DEFINE_GUID(CLSID_InProcFreeMarshaler,    0x0000033a,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);
+ DEFINE_GUID(CLSID_GlobalOptions,          0x0000034b,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);
++DEFINE_GUID(CLSID_ContextSwitcher,        0x0000034e,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);
+ DEFINE_GUID(CLSID_TF_ThreadMgr,           0x529a9e6b,0x6587,0x4f23,0xab,0x9e,0x9c,0x7d,0x68,0x3e,0x3c,0x50);
+ DEFINE_GUID(CLSID_TF_InputProcessorProfiles, 0x33c53a50,0xf456,0x4884,0xb0,0x49,0x85,0xfd,0x64,0x3e,0xcf,0xed);
+ DEFINE_GUID(CLSID_TF_CategoryMgr,         0xA4B544A1,0x438D,0x4B41,0x93,0x25,0x86,0x95,0x23,0xE2,0xD6,0xC7);
+-- 
+2.43.0
+

@@ -1,0 +1,89 @@
+From d5c591336ee8863e052f4c6cbcfd2ff3f98b09d2 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:42:06 +0200
+Subject: [PATCH 18/49] server: Stop listening when disconnecting a listening
+ pipe.
+
+Windows services such as SQL Server call DisconnectNamedPipe() on pipe
+instances that are still listening before calling ConnectNamedPipe() again;
+returning STATUS_PIPE_LISTENING made them give up on the listener.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/kernel32/tests/pipe.c | 37 +++++++++++++++++++++++++++++++++++++
+ server/named_pipe.c        |  5 ++++-
+ 2 files changed, 41 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/kernel32/tests/pipe.c b/dlls/kernel32/tests/pipe.c
+index ffdd4d0..dd065e8 100644
+--- a/dlls/kernel32/tests/pipe.c
++++ b/dlls/kernel32/tests/pipe.c
+@@ -4300,6 +4300,42 @@ static void test_CancelSynchronousIo(void)
+     CloseHandle(pipe);
+ }
+ 
++static void test_disconnect_listening(void)
++{
++    OVERLAPPED overlapped = {0};
++    HANDLE server;
++    DWORD size;
++    BOOL ret;
++
++    server = CreateNamedPipeA( PIPENAME, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE,
++                               1, 1024, 1024, NMPWAIT_USE_DEFAULT_WAIT, NULL );
++    ok( server != INVALID_HANDLE_VALUE, "CreateNamedPipe failed, error %lu\n", GetLastError() );
++    overlapped.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL );
++
++    ret = ConnectNamedPipe( server, &overlapped );
++    ok( !ret && GetLastError() == ERROR_IO_PENDING, "got %d, error %lu\n", ret, GetLastError() );
++
++    /* disconnecting a listening pipe succeeds and completes the pending listen */
++    ret = DisconnectNamedPipe( server );
++    ok( ret, "DisconnectNamedPipe failed, error %lu\n", GetLastError() );
++    ok( !WaitForSingleObject( overlapped.hEvent, 1000 ), "listen was not completed\n" );
++    SetLastError( 0xdeadbeef );
++    ret = GetOverlappedResult( server, &overlapped, &size, FALSE );
++    ok( !ret && GetLastError() == ERROR_PIPE_NOT_CONNECTED, "got %d, error %lu\n", ret, GetLastError() );
++
++    SetLastError( 0xdeadbeef );
++    ret = DisconnectNamedPipe( server );
++    ok( !ret && GetLastError() == ERROR_PIPE_NOT_CONNECTED, "got %d, error %lu\n", ret, GetLastError() );
++
++    /* the pipe can listen again */
++    ResetEvent( overlapped.hEvent );
++    ret = ConnectNamedPipe( server, &overlapped );
++    ok( !ret && GetLastError() == ERROR_IO_PENDING, "got %d, error %lu\n", ret, GetLastError() );
++
++    CloseHandle( server );
++    CloseHandle( overlapped.hEvent );
++}
++
+ START_TEST(pipe)
+ {
+     char **argv;
+@@ -4382,4 +4418,5 @@ START_TEST(pipe)
+     test_GetOverlappedResultEx();
+     test_exit_process_async();
+     test_CancelSynchronousIo();
++    test_disconnect_listening();
+ }
+diff --git a/server/named_pipe.c b/server/named_pipe.c
+index 1e51158..f812468 100644
+--- a/server/named_pipe.c
++++ b/server/named_pipe.c
+@@ -1299,7 +1299,10 @@ static void pipe_server_ioctl( struct fd *fd, ioctl_code_t code, struct async *a
+         case FILE_PIPE_CLOSING_STATE:
+             break;
+         case FILE_PIPE_LISTENING_STATE:
+-            set_error( STATUS_PIPE_LISTENING );
++            /* like on Windows, stop listening and complete pending listens */
++            list_remove( &server->entry );
++            server->pipe_end.state = FILE_PIPE_DISCONNECTED_STATE;
++            async_wake_up( &server->listen_q, STATUS_PIPE_DISCONNECTED );
+             return;
+         case FILE_PIPE_DISCONNECTED_STATE:
+             set_error( STATUS_PIPE_DISCONNECTED );
+-- 
+2.43.0
+

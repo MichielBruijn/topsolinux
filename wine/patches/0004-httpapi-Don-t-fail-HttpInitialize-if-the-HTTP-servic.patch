@@ -1,0 +1,55 @@
+From acc9f4a159584a589c39862fac4fdb48c9f6ce9e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:27 +0200
+Subject: [PATCH 04/49] httpapi: Don't fail HttpInitialize() if the HTTP
+ service is already running.
+
+StartService() can fail with ERROR_SERVICE_DATABASE_LOCKED while services
+are being started automatically, even if the http service itself is already
+running as a dependency of the calling service.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/httpapi/httpapi_main.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/httpapi/httpapi_main.c b/dlls/httpapi/httpapi_main.c
+index 28d67c9..39b419c 100644
+--- a/dlls/httpapi/httpapi_main.c
++++ b/dlls/httpapi/httpapi_main.c
+@@ -44,6 +44,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(http);
+ ULONG WINAPI HttpInitialize(HTTPAPI_VERSION version, ULONG flags, void *reserved)
+ {
+     SC_HANDLE manager, service;
++    SERVICE_STATUS status;
+ 
+     TRACE("version %u.%u, flags %#lx, reserved %p.\n", version.HttpApiMajorVersion,
+             version.HttpApiMinorVersion, flags, reserved);
+@@ -57,13 +58,22 @@ ULONG WINAPI HttpInitialize(HTTPAPI_VERSION version, ULONG flags, void *reserved
+     if (!(manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT)))
+         return GetLastError();
+ 
+-    if (!(service = OpenServiceW(manager, L"http", SERVICE_START)))
++    if (!(service = OpenServiceW(manager, L"http", SERVICE_START | SERVICE_QUERY_STATUS)))
+     {
+         ERR("Failed to open HTTP service, error %lu.\n", GetLastError());
+         CloseServiceHandle(manager);
+         return GetLastError();
+     }
+ 
++    /* the service may already be running, e.g. as a dependency, while the
++     * service database is still locked during automatic startup */
++    if (QueryServiceStatus(service, &status) && status.dwCurrentState == SERVICE_RUNNING)
++    {
++        CloseServiceHandle(service);
++        CloseServiceHandle(manager);
++        return ERROR_SUCCESS;
++    }
++
+     if (!StartServiceW(service, 0, NULL) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
+     {
+         ERR("Failed to start HTTP service, error %lu.\n", GetLastError());
+-- 
+2.43.0
+

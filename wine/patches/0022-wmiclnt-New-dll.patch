@@ -1,0 +1,94 @@
+From 56b0483e3435d48812a0c062bac95c8a05c413d3 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:43:10 +0200
+Subject: [PATCH 22/49] wmiclnt: New dll.
+
+The WMI service and providers import the Wmi* functions from wmiclnt.dll,
+forward them to advapi32 like on Windows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ configure                 |  2 ++
+ configure.ac              |  1 +
+ dlls/wmiclnt/Makefile.in  |  5 +++++
+ dlls/wmiclnt/wmiclnt.spec | 23 +++++++++++++++++++++++
+ 4 files changed, 31 insertions(+)
+ create mode 100644 dlls/wmiclnt/Makefile.in
+ create mode 100644 dlls/wmiclnt/wmiclnt.spec
+
+diff --git a/configure b/configure
+index 4116b4a..696edeb 100755
+--- a/configure
++++ b/configure
+@@ -1603,6 +1603,7 @@ enable_wldp
+ enable_wmadmod
+ enable_wmasf
+ enable_wmi
++enable_wmiclnt
+ enable_wmilib_sys
+ enable_wminet_utils
+ enable_wmiutils
+@@ -23009,6 +23010,7 @@ wine_fn_config_makefile dlls/wldp/tests enable_tests
+ wine_fn_config_makefile dlls/wmadmod enable_wmadmod
+ wine_fn_config_makefile dlls/wmasf enable_wmasf
+ wine_fn_config_makefile dlls/wmi enable_wmi
++wine_fn_config_makefile dlls/wmiclnt enable_wmiclnt
+ wine_fn_config_makefile dlls/wmilib.sys enable_wmilib_sys
+ wine_fn_config_makefile dlls/wminet_utils enable_wminet_utils
+ wine_fn_config_makefile dlls/wmiutils enable_wmiutils
+diff --git a/configure.ac b/configure.ac
+index 80bb8b3..33bea29 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3465,6 +3465,7 @@ WINE_CONFIG_MAKEFILE(dlls/wldp/tests)
+ WINE_CONFIG_MAKEFILE(dlls/wmadmod)
+ WINE_CONFIG_MAKEFILE(dlls/wmasf)
+ WINE_CONFIG_MAKEFILE(dlls/wmi)
++WINE_CONFIG_MAKEFILE(dlls/wmiclnt)
+ WINE_CONFIG_MAKEFILE(dlls/wmilib.sys)
+ WINE_CONFIG_MAKEFILE(dlls/wminet_utils)
+ WINE_CONFIG_MAKEFILE(dlls/wmiutils)
+diff --git a/dlls/wmiclnt/Makefile.in b/dlls/wmiclnt/Makefile.in
+new file mode 100644
+index 0000000..5f0eb4f
+--- /dev/null
++++ b/dlls/wmiclnt/Makefile.in
+@@ -0,0 +1,5 @@
++MODULE    = wmiclnt.dll
++IMPORTS   = advapi32
++
++SOURCES = \
++	wmiclnt.spec
+diff --git a/dlls/wmiclnt/wmiclnt.spec b/dlls/wmiclnt/wmiclnt.spec
+new file mode 100644
+index 0000000..b32d160
+--- /dev/null
++++ b/dlls/wmiclnt/wmiclnt.spec
+@@ -0,0 +1,23 @@
++@ stdcall WmiCloseBlock(long) advapi32.WmiCloseBlock
++@ stub WmiDevInstToInstanceNameA
++@ stub WmiDevInstToInstanceNameW
++@ stub WmiEnumerateGuids
++@ stdcall WmiExecuteMethodA(long str long long ptr ptr ptr) advapi32.WmiExecuteMethodA
++@ stdcall WmiExecuteMethodW(long wstr long long ptr ptr ptr) advapi32.WmiExecuteMethodW
++@ stub WmiFileHandleToInstanceNameA
++@ stub WmiFileHandleToInstanceNameW
++@ stdcall WmiFreeBuffer(ptr) advapi32.WmiFreeBuffer
++@ stdcall WmiMofEnumerateResourcesA(long ptr ptr) advapi32.WmiMofEnumerateResourcesA
++@ stdcall WmiMofEnumerateResourcesW(long ptr ptr) advapi32.WmiMofEnumerateResourcesW
++@ stdcall WmiNotificationRegistrationA(ptr long ptr long long) advapi32.WmiNotificationRegistrationA
++@ stdcall WmiNotificationRegistrationW(ptr long ptr long long) advapi32.WmiNotificationRegistrationW
++@ stdcall WmiOpenBlock(ptr long ptr) advapi32.WmiOpenBlock
++@ stdcall WmiQueryAllDataA(long ptr ptr) advapi32.WmiQueryAllDataA
++@ stdcall WmiQueryAllDataW(long ptr ptr) advapi32.WmiQueryAllDataW
++@ stdcall WmiQueryGuidInformation(long ptr) advapi32.WmiQueryGuidInformation
++@ stub WmiQuerySingleInstanceA
++@ stub WmiQuerySingleInstanceW
++@ stdcall WmiSetSingleInstanceA(long str long long ptr) advapi32.WmiSetSingleInstanceA
++@ stdcall WmiSetSingleInstanceW(long wstr long long ptr) advapi32.WmiSetSingleInstanceW
++@ stdcall WmiSetSingleItemA(long str long long long ptr) advapi32.WmiSetSingleItemA
++@ stdcall WmiSetSingleItemW(long wstr long long long ptr) advapi32.WmiSetSingleItemW
+-- 
+2.43.0
+

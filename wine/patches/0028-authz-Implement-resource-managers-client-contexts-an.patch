@@ -1,0 +1,396 @@
+From a30bbe83a5d4a79410c53cfcc428a637ef704d07 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:03 +0200
+Subject: [PATCH 28/49] authz: Implement resource managers, client contexts and
+ AuthzAccessCheck().
+
+Also add semi-stubs for the object access audit event functions. Used by
+the WMI service to check access of its clients.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/authz/Makefile.in |   1 +
+ dlls/authz/authz.c     | 251 ++++++++++++++++++++++++++++++++++++++---
+ dlls/authz/authz.spec  |   6 +-
+ include/authz.h        |   8 ++
+ 4 files changed, 245 insertions(+), 21 deletions(-)
+
+diff --git a/dlls/authz/Makefile.in b/dlls/authz/Makefile.in
+index 53befbb..99faf55 100644
+--- a/dlls/authz/Makefile.in
++++ b/dlls/authz/Makefile.in
+@@ -1,4 +1,5 @@
+ MODULE    = authz.dll
++IMPORTS   = advapi32
+ 
+ EXTRADLLFLAGS = -Wb,--prefer-native
+ 
+diff --git a/dlls/authz/authz.c b/dlls/authz/authz.c
+index 6f54293..d7716b4 100644
+--- a/dlls/authz/authz.c
++++ b/dlls/authz/authz.c
+@@ -18,6 +18,7 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
+ #include <stdarg.h>
++#include <stdlib.h>
+ 
+ #include "windef.h"
+ #include "winbase.h"
+@@ -27,6 +28,70 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(authz);
+ 
++#define RESOURCE_MANAGER_MAGIC 0x6d72617a /* 'zarm' */
++#define CLIENT_CONTEXT_MAGIC   0x6363617a /* 'zacc' */
++
++struct resource_manager
++{
++    DWORD magic;
++    DWORD flags;
++};
++
++struct client_context
++{
++    DWORD magic;
++    HANDLE token;
++};
++
++static struct resource_manager *get_resource_manager(AUTHZ_RESOURCE_MANAGER_HANDLE handle)
++{
++    struct resource_manager *rm = (struct resource_manager *)handle;
++
++    if (!rm || rm->magic != RESOURCE_MANAGER_MAGIC) return NULL;
++    return rm;
++}
++
++static struct client_context *get_client_context(AUTHZ_CLIENT_CONTEXT_HANDLE handle)
++{
++    struct client_context *context = (struct client_context *)handle;
++
++    if (!context || context->magic != CLIENT_CONTEXT_MAGIC) return NULL;
++    return context;
++}
++
++static BOOL create_client_context(HANDLE token, AUTHZ_CLIENT_CONTEXT_HANDLE *handle)
++{
++    struct client_context *context;
++
++    if (!(context = malloc(sizeof(*context))))
++    {
++        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
++        return FALSE;
++    }
++
++    /* AccessCheck() needs an impersonation token. Callers usually pass a thread token
++     * opened with TOKEN_QUERY only, which can be used as is. */
++    if (!DuplicateTokenEx(token, TOKEN_QUERY | TOKEN_IMPERSONATE, NULL, SecurityIdentification,
++            TokenImpersonation, &context->token))
++    {
++        TOKEN_TYPE type;
++        DWORD len;
++
++        if (!GetTokenInformation(token, TokenType, &type, sizeof(type), &len) || type != TokenImpersonation
++                || !DuplicateHandle(GetCurrentProcess(), token, GetCurrentProcess(), &context->token,
++                0, FALSE, DUPLICATE_SAME_ACCESS))
++        {
++            WARN("failed to use token %p, error %lu\n", token, GetLastError());
++            free(context);
++            return FALSE;
++        }
++    }
++
++    context->magic = CLIENT_CONTEXT_MAGIC;
++    *handle = (AUTHZ_CLIENT_CONTEXT_HANDLE)context;
++    return TRUE;
++}
++
+ /***********************************************************************
+  *              AuthzInitializeResourceManager (AUTHZ.@)
+  */
+@@ -34,11 +99,31 @@ BOOL WINAPI AuthzInitializeResourceManager(DWORD flags, PFN_AUTHZ_DYNAMIC_ACCESS
+         PFN_AUTHZ_COMPUTE_DYNAMIC_GROUPS compute_dyn_groups, PFN_AUTHZ_FREE_DYNAMIC_GROUPS free_dyn_groups,
+         const WCHAR *managername, AUTHZ_RESOURCE_MANAGER_HANDLE *handle )
+ {
+-    FIXME("(0x%lx,%p,%p,%p,%s,%p): stub\n", flags, access_checker,
++    struct resource_manager *rm;
++
++    TRACE("(0x%lx,%p,%p,%p,%s,%p)\n", flags, access_checker,
+         compute_dyn_groups, free_dyn_groups,
+         debugstr_w(managername), handle);
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return FALSE;
++
++    if (!handle)
++    {
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    if (access_checker || compute_dyn_groups || free_dyn_groups)
++        FIXME("dynamic access checks and groups are not supported\n");
++
++    if (!(rm = malloc(sizeof(*rm))))
++    {
++        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
++        return FALSE;
++    }
++
++    rm->magic = RESOURCE_MANAGER_MAGIC;
++    rm->flags = flags;
++    *handle = (AUTHZ_RESOURCE_MANAGER_HANDLE)rm;
++    return TRUE;
+ }
+ 
+ /***********************************************************************
+@@ -46,9 +131,19 @@ BOOL WINAPI AuthzInitializeResourceManager(DWORD flags, PFN_AUTHZ_DYNAMIC_ACCESS
+  */
+ BOOL WINAPI AuthzFreeResourceManager(AUTHZ_RESOURCE_MANAGER_HANDLE handle)
+ {
+-    FIXME("%p\n", handle);
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return FALSE;
++    struct resource_manager *rm = get_resource_manager(handle);
++
++    TRACE("%p\n", handle);
++
++    if (!rm)
++    {
++        SetLastError(ERROR_INVALID_HANDLE);
++        return FALSE;
++    }
++
++    rm->magic = 0;
++    free(rm);
++    return TRUE;
+ }
+ 
+ /***********************************************************************
+@@ -71,11 +166,44 @@ BOOL WINAPI AuthzAccessCheck(DWORD flags, AUTHZ_CLIENT_CONTEXT_HANDLE client_con
+         DWORD optional_security_count, AUTHZ_ACCESS_REPLY *reply,
+         AUTHZ_ACCESS_CHECK_RESULTS_HANDLE *access_check_result)
+ {
+-    FIXME("(0x%lx,%p,%p,%p,%p,%p,0x%lx,%p,%p): stub\n", flags, client_context,
++    struct client_context *context = get_client_context(client_context);
++    char buffer[sizeof(PRIVILEGE_SET) + 16 * sizeof(LUID_AND_ATTRIBUTES)];
++    PRIVILEGE_SET *privileges = (PRIVILEGE_SET *)buffer;
++    DWORD privileges_len = sizeof(buffer), granted = 0, i;
++    GENERIC_MAPPING mapping = { 0 };
++    BOOL status = FALSE;
++
++    TRACE("(0x%lx,%p,%p,%p,%p,%p,0x%lx,%p,%p)\n", flags, client_context,
+             request, audit_event, security, optional_security,
+             optional_security_count, reply, access_check_result);
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return FALSE;
++
++    if (!context || !request || !security || !reply || !reply->GrantedAccessMask || !reply->Error)
++    {
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    if (optional_security_count)
++        FIXME("ignoring %lu optional security descriptors\n", optional_security_count);
++    if (request->ObjectTypeListLength)
++        FIXME("object type lists are not supported\n");
++
++    if (!AccessCheck(security, context->token, request->DesiredAccess, &mapping,
++            privileges, &privileges_len, &granted, &status))
++    {
++        WARN("AccessCheck failed, error %lu\n", GetLastError());
++        status = FALSE;
++    }
++
++    for (i = 0; i < reply->ResultListLength; i++)
++    {
++        reply->GrantedAccessMask[i] = status ? granted : 0;
++        reply->Error[i] = status ? ERROR_SUCCESS : ERROR_ACCESS_DENIED;
++        if (reply->SaclEvaluationResults) reply->SaclEvaluationResults[i] = 0;
++    }
++
++    if (access_check_result) *access_check_result = NULL;
++    return TRUE;
+ }
+ 
+ 
+@@ -84,9 +212,74 @@ BOOL WINAPI AuthzAccessCheck(DWORD flags, AUTHZ_CLIENT_CONTEXT_HANDLE client_con
+  */
+ BOOL WINAPI AuthzFreeContext(AUTHZ_CLIENT_CONTEXT_HANDLE client_context)
+ {
+-    FIXME("(%p): stub\n", client_context);
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return FALSE;
++    struct client_context *context = get_client_context(client_context);
++
++    TRACE("(%p)\n", client_context);
++
++    if (!context)
++    {
++        SetLastError(ERROR_INVALID_HANDLE);
++        return FALSE;
++    }
++
++    CloseHandle(context->token);
++    context->magic = 0;
++    free(context);
++    return TRUE;
++}
++
++
++static struct { DWORD dummy; } audit_event_placeholder;
++
++/***********************************************************************
++ *              AuthzInitializeObjectAccessAuditEvent (AUTHZ.@)
++ */
++BOOL WINAPIV AuthzInitializeObjectAccessAuditEvent(DWORD flags, AUTHZ_AUDIT_EVENT_TYPE_HANDLE event_type,
++        WCHAR *operation_type, WCHAR *object_type, WCHAR *object_name, WCHAR *additional_info,
++        AUTHZ_AUDIT_EVENT_HANDLE *audit_event, DWORD additional_param_count, ...)
++{
++    FIXME("(0x%lx,%p,%s,%s,%s,%s,%p,%lu): auditing is not supported\n", flags, event_type,
++            debugstr_w(operation_type), debugstr_w(object_type), debugstr_w(object_name),
++            debugstr_w(additional_info), audit_event, additional_param_count);
++
++    if (!audit_event)
++    {
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    *audit_event = (AUTHZ_AUDIT_EVENT_HANDLE)&audit_event_placeholder;
++    return TRUE;
++}
++
++/***********************************************************************
++ *              AuthzInitializeObjectAccessAuditEvent2 (AUTHZ.@)
++ */
++BOOL WINAPIV AuthzInitializeObjectAccessAuditEvent2(DWORD flags, AUTHZ_AUDIT_EVENT_TYPE_HANDLE event_type,
++        WCHAR *operation_type, WCHAR *object_type, WCHAR *object_name, WCHAR *additional_info,
++        WCHAR *additional_info2, AUTHZ_AUDIT_EVENT_HANDLE *audit_event, DWORD additional_param_count, ...)
++{
++    FIXME("(0x%lx,%p,%s,%s,%s,%s,%s,%p,%lu): auditing is not supported\n", flags, event_type,
++            debugstr_w(operation_type), debugstr_w(object_type), debugstr_w(object_name),
++            debugstr_w(additional_info), debugstr_w(additional_info2), audit_event, additional_param_count);
++
++    if (!audit_event)
++    {
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    *audit_event = (AUTHZ_AUDIT_EVENT_HANDLE)&audit_event_placeholder;
++    return TRUE;
++}
++
++/***********************************************************************
++ *              AuthzFreeAuditEvent (AUTHZ.@)
++ */
++BOOL WINAPI AuthzFreeAuditEvent(AUTHZ_AUDIT_EVENT_HANDLE audit_event)
++{
++    TRACE("(%p)\n", audit_event);
++    return TRUE;
+ }
+ 
+ 
+@@ -97,10 +290,23 @@ BOOL WINAPI AuthzInitializeContextFromSid(DWORD flags, PSID sid,
+         AUTHZ_RESOURCE_MANAGER_HANDLE resource_manager, LARGE_INTEGER *expire_time,
+         LUID id, void *dynamic_group, AUTHZ_CLIENT_CONTEXT_HANDLE *client_context)
+ {
+-    FIXME("(0x%lx,%p,%p,%p,%08lx:%08lx,%p,%p): stub\n", flags, sid, resource_manager,
++    HANDLE token;
++    BOOL ret;
++
++    FIXME("(0x%lx,%p,%p,%p,%08lx:%08lx,%p,%p): using the process token\n", flags, sid, resource_manager,
+             expire_time, id.HighPart, id.LowPart, dynamic_group, client_context);
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return FALSE;
++
++    if (!sid || !client_context || !get_resource_manager(resource_manager))
++    {
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, &token))
++        return FALSE;
++    ret = create_client_context(token, client_context);
++    CloseHandle(token);
++    return ret;
+ }
+ 
+ 
+@@ -111,8 +317,17 @@ BOOL WINAPI AuthzInitializeContextFromToken(DWORD flags, HANDLE token_handle,
+         AUTHZ_RESOURCE_MANAGER_HANDLE resource_manager, LARGE_INTEGER *expire_time,
+         LUID id, void *dynamic_group, AUTHZ_CLIENT_CONTEXT_HANDLE *client_context)
+ {
+-    FIXME("(0x%lx,%p,%p,%p,%08lx:%08lx,%p,%p): stub\n", flags, token_handle, resource_manager,
++    TRACE("(0x%lx,%p,%p,%p,%08lx:%08lx,%p,%p)\n", flags, token_handle, resource_manager,
+             expire_time, id.HighPart, id.LowPart, dynamic_group, client_context);
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return FALSE;
++
++    if (!token_handle || !client_context || !get_resource_manager(resource_manager))
++    {
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    if (dynamic_group)
++        FIXME("dynamic groups are not supported\n");
++
++    return create_client_context(token_handle, client_context);
+ }
+diff --git a/dlls/authz/authz.spec b/dlls/authz/authz.spec
+index 933e3d5..aca2f63 100644
+--- a/dlls/authz/authz.spec
++++ b/dlls/authz/authz.spec
+@@ -3,7 +3,7 @@
+ @ stub AuthzCachedAccessCheck
+ @ stub AuthzEnumerateSecurityEventSources
+ @ stub AuthzEvaluateSacl
+-@ stub AuthzFreeAuditEvent
++@ stdcall AuthzFreeAuditEvent(ptr)
+ @ stdcall AuthzFreeContext(long)
+ @ stub AuthzFreeHandle
+ @ stdcall AuthzFreeResourceManager(ptr)
+@@ -11,8 +11,8 @@
+ @ stub AuthzInitializeContextFromAuthzContext
+ @ stdcall AuthzInitializeContextFromSid(long ptr long ptr int64 ptr ptr)
+ @ stdcall AuthzInitializeContextFromToken(long long long ptr int64 ptr ptr)
+-@ stub AuthzInitializeObjectAccessAuditEvent
+-@ stub AuthzInitializeObjectAccessAuditEvent2
++@ varargs AuthzInitializeObjectAccessAuditEvent(long ptr wstr wstr wstr wstr ptr long)
++@ varargs AuthzInitializeObjectAccessAuditEvent2(long ptr wstr wstr wstr wstr wstr ptr long)
+ @ stdcall AuthzInitializeResourceManager(long ptr ptr ptr wstr ptr)
+ @ stdcall AuthzInstallSecurityEventSource(long ptr)
+ @ stub AuthzOpenObjectAudit
+diff --git a/include/authz.h b/include/authz.h
+index d93372a..9d8753f 100644
+--- a/include/authz.h
++++ b/include/authz.h
+@@ -27,6 +27,7 @@ DECLARE_HANDLE(AUTHZ_ACCESS_CHECK_RESULTS_HANDLE);
+ DECLARE_HANDLE(AUTHZ_CLIENT_CONTEXT_HANDLE);
+ DECLARE_HANDLE(AUTHZ_RESOURCE_MANAGER_HANDLE);
+ DECLARE_HANDLE(AUTHZ_AUDIT_EVENT_HANDLE);
++DECLARE_HANDLE(AUTHZ_AUDIT_EVENT_TYPE_HANDLE);
+ 
+ typedef AUTHZ_ACCESS_CHECK_RESULTS_HANDLE *PAUTHZ_ACCESS_CHECK_RESULTS_HANDLE;
+ typedef AUTHZ_CLIENT_CONTEXT_HANDLE *PAUTHZ_CLIENT_CONTEXT_HANDLE;
+@@ -102,6 +103,13 @@ BOOL WINAPI AuthzAccessCheck(DWORD flags, AUTHZ_CLIENT_CONTEXT_HANDLE client_con
+         DWORD optional_security_count, AUTHZ_ACCESS_REPLY *reply,
+         AUTHZ_ACCESS_CHECK_RESULTS_HANDLE *access_check_result);
+ 
++BOOL WINAPI AuthzFreeAuditEvent(AUTHZ_AUDIT_EVENT_HANDLE audit_event);
++BOOL WINAPIV AuthzInitializeObjectAccessAuditEvent(DWORD flags, AUTHZ_AUDIT_EVENT_TYPE_HANDLE event_type,
++        WCHAR *operation_type, WCHAR *object_type, WCHAR *object_name, WCHAR *additional_info,
++        AUTHZ_AUDIT_EVENT_HANDLE *audit_event, DWORD additional_param_count, ...);
++BOOL WINAPIV AuthzInitializeObjectAccessAuditEvent2(DWORD flags, AUTHZ_AUDIT_EVENT_TYPE_HANDLE event_type,
++        WCHAR *operation_type, WCHAR *object_type, WCHAR *object_name, WCHAR *additional_info,
++        WCHAR *additional_info2, AUTHZ_AUDIT_EVENT_HANDLE *audit_event, DWORD additional_param_count, ...);
+ BOOL WINAPI AuthzFreeContext(AUTHZ_CLIENT_CONTEXT_HANDLE client_context);
+ BOOL WINAPI AuthzFreeResourceManager(AUTHZ_RESOURCE_MANAGER_HANDLE handle);
+ 
+-- 
+2.43.0
+

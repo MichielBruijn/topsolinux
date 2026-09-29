@@ -1,0 +1,86 @@
+From 42b17a3448331bc9723fc0889917a473b7ac9cdd Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:42:11 +0200
+Subject: [PATCH 19/49] winbrand: Implement BrandingLoadString().
+
+Load the string from %windir%\Branding\<namespace>\<namespace>.dll like
+Windows does. Used by the WMI Win32_OperatingSystem provider.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/winbrand/Makefile.in   |  1 +
+ dlls/winbrand/main.c        | 29 +++++++++++++++++++++++++++++
+ dlls/winbrand/winbrand.spec |  2 +-
+ 3 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/winbrand/Makefile.in b/dlls/winbrand/Makefile.in
+index bd8ce7c..eb5f42e 100644
+--- a/dlls/winbrand/Makefile.in
++++ b/dlls/winbrand/Makefile.in
+@@ -1,4 +1,5 @@
+ MODULE    = winbrand.dll
++IMPORTS   = user32
+ 
+ SOURCES = \
+ 	main.c
+diff --git a/dlls/winbrand/main.c b/dlls/winbrand/main.c
+index ecfad79..541a825 100644
+--- a/dlls/winbrand/main.c
++++ b/dlls/winbrand/main.c
+@@ -19,6 +19,8 @@
+ #include <stdarg.h>
+ #include "ntstatus.h"
+ #include "windef.h"
++#include "winbase.h"
++#include "winuser.h"
+ #include "winternl.h"
+ #include "wine/debug.h"
+ 
+@@ -50,3 +52,30 @@ LPWSTR WINAPI BrandingFormatString(LPWSTR format)
+ 
+     return result;
+ }
++
++/***********************************************************************
++ *      BrandingLoadString (WINBRAND.@)
++ */
++int WINAPI BrandingLoadString(const WCHAR *name, int id, WCHAR *buffer, int size)
++{
++    WCHAR path[MAX_PATH];
++    HMODULE module;
++    int ret;
++
++    TRACE("%s, %d, %p, %d\n", debugstr_w(name), id, buffer, size);
++
++    if (!name || !buffer || size <= 0) return 0;
++
++    /* the namespace resolves to %windir%\Branding\<name>\<name>.dll */
++    GetWindowsDirectoryW(path, ARRAY_SIZE(path));
++    swprintf(path + wcslen(path), ARRAY_SIZE(path) - wcslen(path), L"\\Branding\\%s\\%s.dll", name, name);
++    if (!(module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)))
++    {
++        FIXME("branding namespace %s not available\n", debugstr_w(name));
++        buffer[0] = 0;
++        return 0;
++    }
++    ret = LoadStringW(module, id, buffer, size);
++    FreeLibrary(module);
++    return ret;
++}
+diff --git a/dlls/winbrand/winbrand.spec b/dlls/winbrand/winbrand.spec
+index 783f1ea..f903613 100644
+--- a/dlls/winbrand/winbrand.spec
++++ b/dlls/winbrand/winbrand.spec
+@@ -5,7 +5,7 @@
+ @ stub BrandingLoadIcon
+ @ stub BrandingLoadImage
+ @ stub BrandingLoadNeutralStringForEdition
+-@ stub BrandingLoadString
++@ stdcall BrandingLoadString(wstr long ptr long)
+ @ stub BrandingLoadStringForEdition
+ @ stub GetEULAFile
+ @ stub GetEULAFileEx
+-- 
+2.43.0
+

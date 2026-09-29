@@ -1,0 +1,26 @@
+From f4a8ad6e2ded60950c9607109ec29b5e2124c69f Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:42:11 +0200
+Subject: [PATCH 20/49] apisetschema: Add ext-ms-win-branding-winbrand-l1-1-0.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/apisetschema/apisetschema.spec | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dlls/apisetschema/apisetschema.spec b/dlls/apisetschema/apisetschema.spec
+index 1f40225..ac36f5b 100644
+--- a/dlls/apisetschema/apisetschema.spec
++++ b/dlls/apisetschema/apisetschema.spec
+@@ -375,6 +375,7 @@ apiset ext-ms-win-authz-claimpolicies-l1-1-0 = authz.dll
+ apiset ext-ms-win-authz-context-l1-1-0 = authz.dll
+ apiset ext-ms-win-base-psapi-l1-1-0 = psapi.dll
+ apiset ext-ms-win-base-rstrtmgr-l1-1-0 = rstrtmgr.dll
++apiset ext-ms-win-branding-winbrand-l1-1-0 = winbrand.dll
+ apiset ext-ms-win-bluetooth-apis-internal-l1-1-0 = bluetoothapis.dll
+ apiset ext-ms-win-bluetooth-apis-l1-1-0 = bluetoothapis.dll
+ apiset ext-ms-win-bluetooth-apis-private-l1-1-0 = bluetoothapis.dll
+-- 
+2.43.0
+

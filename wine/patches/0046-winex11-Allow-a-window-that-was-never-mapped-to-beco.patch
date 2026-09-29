@@ -1,0 +1,68 @@
+From aaa914cc8661e3a5073acd94a6c99fbdd3213a73 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 29 Sep 2026 13:49:41 +0200
+Subject: [PATCH 46/49] winex11: Allow a window that was never mapped to become
+ unmanaged again.
+
+The X window is created before WM_NCCREATE, with the style the application
+passed. Windows whose final style is set in WM_NCCREATE, such as tooltips
+created without WS_POPUP, were then kept managed forever, and the window
+manager stacked them below the active window.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/winex11.drv/window.c | 10 ++++++++--
+ dlls/winex11.drv/x11drv.h |  1 +
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index d7df0a8..f25e159 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1620,6 +1620,7 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
+         window_set_user_time( data, activate ? -1 : 0, TRUE );
+     }
+ 
++    if (new_state != WithdrawnState) data->was_mapped = TRUE;
+     data->pending_state.wm_state = new_state;
+     data->pending_state.activate = activate;
+     data->wm_state_serial = NextRequest( data->display );
+@@ -1659,7 +1660,12 @@ static void window_set_managed( struct x11drv_win_data *data, BOOL new_managed )
+     if (old_managed == new_managed) return; /* states are the same, nothing to update */
+     if (!new_managed)
+     {
+-        ERR( "Changing window to unmanaged is not supported\n" );
++        /* the window manager has never seen a window that was not mapped yet, it may still become
++         * override-redirect, e.g. when its final style is only set during WM_NCCREATE */
++        if (data->was_mapped || data->embedded) return; /* changing a mapped window to unmanaged is not supported */
++        data->managed = FALSE;
++        TRACE( "window %p/%lx, requesting override-redirect 0 -> 1\n", data->hwnd, data->whole_window );
++        XChangeWindowAttributes( data->display, data->whole_window, CWOverrideRedirect, &attr );
+         return;
+     }
+ 
+@@ -3273,7 +3279,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
+     if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
+ 
+     if (!(data = get_win_data( hwnd ))) return;
+-    if (is_managed) window_set_managed( data, TRUE );
++    window_set_managed( data, is_managed );
+ 
+     old_rects = data->rects;
+     was_fullscreen = data->is_fullscreen;
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 94e975a..8c35484 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -688,6 +688,7 @@ struct x11drv_win_data
+     struct host_window *parent; /* the host window parent, frame or embedder, NULL if root_window */
+     XIC         xic;            /* X input context */
+     UINT        managed : 1;    /* is window managed? */
++    UINT        was_mapped : 1; /* has window ever been requested to be mapped? */
+     UINT        embedded : 1;   /* is window an XEMBED client? */
+     UINT        shaped : 1;     /* is window using a custom region shape? */
+     UINT        layered : 1;    /* is window layered and with valid attributes? */
+-- 
+2.43.0
+

@@ -1,0 +1,102 @@
+From 6ac64a820e1aee605a4a56722bfe77c19ac8243e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:41:33 +0200
+Subject: [PATCH 13/49] ntdll: Implement RtlGetSuiteMask().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ntdll/ntdll.spec  |  1 +
+ dlls/ntdll/process.c   | 13 +++++++++++++
+ dlls/ntdll/tests/rtl.c | 21 +++++++++++++++++++++
+ include/winternl.h     |  1 +
+ 4 files changed, 36 insertions(+)
+
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index ef092c6..ba367a9 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -781,6 +781,7 @@
+ @ stdcall RtlGetProcessHeaps(long ptr)
+ @ stdcall RtlGetProcessPreferredUILanguages(long ptr ptr ptr)
+ @ stdcall RtlGetSaclSecurityDescriptor(ptr ptr ptr ptr)
++@ stdcall RtlGetSuiteMask()
+ @ stdcall RtlGetSearchPath(ptr)
+ # @ stub RtlGetSecurityDescriptorRMControl
+ # @ stub RtlGetSetBootStatusData
+diff --git a/dlls/ntdll/process.c b/dlls/ntdll/process.c
+index 8c5826b..249b731 100644
+--- a/dlls/ntdll/process.c
++++ b/dlls/ntdll/process.c
+@@ -201,6 +201,19 @@ NTSTATUS WINAPI RtlCheckPortableOperatingSystem( BOOLEAN *portable )
+ }
+ 
+ 
++/**********************************************************************
++ *           RtlGetSuiteMask  (NTDLL.@)
++ */
++ULONG WINAPI RtlGetSuiteMask(void)
++{
++    RTL_OSVERSIONINFOEXW info;
++
++    info.dwOSVersionInfoSize = sizeof(info);
++    if (RtlGetVersion( &info )) return 0;
++    return info.wSuiteMask;
++}
++
++
+ /**********************************************************************
+  *           RtlWow64GetSharedInfoProcess  (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/tests/rtl.c b/dlls/ntdll/tests/rtl.c
+index da46ccd..3e37685 100644
+--- a/dlls/ntdll/tests/rtl.c
++++ b/dlls/ntdll/tests/rtl.c
+@@ -5638,6 +5638,26 @@ static void test_RtlCheckPortableOperatingSystem(void)
+     else ok( !portable, "got %u\n", portable );
+ }
+ 
++static void test_RtlGetSuiteMask(void)
++{
++    ULONG (WINAPI *pRtlGetSuiteMask)(void);
++    RTL_OSVERSIONINFOEXW info;
++    ULONG mask;
++
++    pRtlGetSuiteMask = (void *)GetProcAddress( hntdll, "RtlGetSuiteMask" );
++    if (!pRtlGetSuiteMask)
++    {
++        win_skip( "RtlGetSuiteMask is not available\n" );
++        return;
++    }
++
++    info.dwOSVersionInfoSize = sizeof(info);
++    RtlGetVersion( &info );
++    mask = pRtlGetSuiteMask();
++    /* VER_SUITE_TERMINAL may be set in the suite mask but not in the version info */
++    ok( (mask & info.wSuiteMask) == info.wSuiteMask, "got %#lx, version suite mask %#x\n", mask, info.wSuiteMask );
++}
++
+ START_TEST(rtl)
+ {
+     InitFunctionPtrs();
+@@ -5712,4 +5732,5 @@ START_TEST(rtl)
+     test_pointer_encoding();
+     test_RtlGetImageFileMachines();
+     test_RtlCheckPortableOperatingSystem();
++    test_RtlGetSuiteMask();
+ }
+diff --git a/include/winternl.h b/include/winternl.h
+index 23d1566..df49441 100644
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -5245,6 +5245,7 @@ NTSYSAPI ULONG     WINAPI RtlGetProcessHeaps(ULONG,HANDLE*);
+ NTSYSAPI NTSTATUS  WINAPI RtlGetProcessPreferredUILanguages(DWORD,ULONG*,WCHAR*,ULONG*);
+ NTSYSAPI BOOLEAN   WINAPI RtlGetProductInfo(DWORD,DWORD,DWORD,DWORD,PDWORD);
+ NTSYSAPI NTSTATUS  WINAPI RtlGetSaclSecurityDescriptor(PSECURITY_DESCRIPTOR,PBOOLEAN,PACL *,PBOOLEAN);
++NTSYSAPI ULONG     WINAPI RtlGetSuiteMask(void);
+ NTSYSAPI NTSTATUS  WINAPI RtlGetSearchPath(PWSTR*);
+ NTSYSAPI NTSTATUS  WINAPI RtlGetSystemPreferredUILanguages(DWORD,ULONG,ULONG*,WCHAR*,ULONG*);
+ NTSYSAPI LONGLONG  WINAPI RtlGetSystemTimePrecise(void);
+-- 
+2.43.0
+

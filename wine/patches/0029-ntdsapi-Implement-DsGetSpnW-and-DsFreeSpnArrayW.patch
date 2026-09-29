@@ -1,0 +1,190 @@
+From 9b9ab26af7f098afc0f9a21877a0047f4bfc495c Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:44:03 +0200
+Subject: [PATCH 29/49] ntdsapi: Implement DsGetSpnW() and DsFreeSpnArrayW().
+
+SQL Server calls DsGetSpnW() at startup to register its service principal
+names and aborts when it is missing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/ntdsapi/ntdsapi.c       | 74 ++++++++++++++++++++++++++++++++++++
+ dlls/ntdsapi/ntdsapi.spec    |  4 +-
+ dlls/ntdsapi/tests/ntdsapi.c | 39 +++++++++++++++++++
+ include/ntdsapi.h            |  3 ++
+ 4 files changed, 118 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/ntdsapi/ntdsapi.c b/dlls/ntdsapi/ntdsapi.c
+index be8689f..e438f06 100644
+--- a/dlls/ntdsapi/ntdsapi.c
++++ b/dlls/ntdsapi/ntdsapi.c
+@@ -229,6 +229,80 @@ DWORD WINAPI DsGetSpnA(DS_SPN_NAME_TYPE ServType, LPCSTR Servlass, LPCSTR ServNa
+     return ERROR_CALL_NOT_IMPLEMENTED;
+ }
+ 
++/***********************************************************************
++ *             DsGetSpnW (NTDSAPI.@)
++ */
++DWORD WINAPI DsGetSpnW(DS_SPN_NAME_TYPE type, LPCWSTR svc_class, LPCWSTR svc_name, USHORT inst_port,
++                       USHORT inst_count, LPCWSTR *inst_names, const USHORT *inst_ports,
++                       DWORD *spn_count, LPWSTR **spn_array)
++{
++    WCHAR host[256];
++    DWORD host_len = ARRAY_SIZE(host), count, i, size, len, ret;
++    LPWSTR *array, str;
++
++    TRACE("(%d,%s,%s,%d,%d,%p,%p,%p,%p)\n", type, debugstr_w(svc_class), debugstr_w(svc_name), inst_port,
++          inst_count, inst_names, inst_ports, spn_count, spn_array);
++
++    if (!svc_class || !spn_count || !spn_array) return ERROR_INVALID_PARAMETER;
++
++    switch (type)
++    {
++    case DS_SPN_DNS_HOST:
++    case DS_SPN_DN_HOST:
++    case DS_SPN_NB_HOST:
++        /* host SPNs are built from the name of the local computer */
++        if (svc_name) return ERROR_INVALID_PARAMETER;
++        if (!GetComputerNameExW(type == DS_SPN_NB_HOST ? ComputerNameNetBIOS : ComputerNameDnsFullyQualified,
++                                host, &host_len))
++            return GetLastError();
++        svc_name = host;
++        break;
++    default:
++        if (!svc_name) return ERROR_INVALID_PARAMETER;
++        break;
++    }
++
++    count = inst_count ? inst_count : 1;
++
++    /* first pass computes the size, second pass fills in the strings */
++    size = count * sizeof(LPWSTR);
++    for (i = 0; i < count; i++)
++    {
++        len = 0;
++        DsMakeSpnW(svc_class, svc_name, inst_count ? inst_names[i] : NULL,
++                   inst_count ? (inst_ports ? inst_ports[i] : 0) : inst_port, NULL, &len, NULL);
++        size += len * sizeof(WCHAR);
++    }
++
++    if (!(array = HeapAlloc(GetProcessHeap(), 0, size))) return ERROR_NOT_ENOUGH_MEMORY;
++    str = (LPWSTR)(array + count);
++    for (i = 0; i < count; i++)
++    {
++        len = (size - ((BYTE *)str - (BYTE *)array)) / sizeof(WCHAR);
++        if ((ret = DsMakeSpnW(svc_class, svc_name, inst_count ? inst_names[i] : NULL,
++                              inst_count ? (inst_ports ? inst_ports[i] : 0) : inst_port, NULL, &len, str)))
++        {
++            HeapFree(GetProcessHeap(), 0, array);
++            return ret;
++        }
++        array[i] = str;
++        str += len;
++    }
++
++    *spn_count = count;
++    *spn_array = array;
++    return ERROR_SUCCESS;
++}
++
++/***********************************************************************
++ *             DsFreeSpnArrayW (NTDSAPI.@)
++ */
++void WINAPI DsFreeSpnArrayW(DWORD count, LPWSTR *array)
++{
++    TRACE("(%ld,%p)\n", count, array);
++    HeapFree(GetProcessHeap(), 0, array);
++}
++
+ /***********************************************************************
+  *             DsServerRegisterSpnA (NTDSAPI.@)
+  */
+diff --git a/dlls/ntdsapi/ntdsapi.spec b/dlls/ntdsapi/ntdsapi.spec
+index bc7827d..3cc5a67 100644
+--- a/dlls/ntdsapi/ntdsapi.spec
++++ b/dlls/ntdsapi/ntdsapi.spec
+@@ -25,12 +25,12 @@
+ @ stub DsFreeSchemaGuidMapA
+ @ stub DsFreeSchemaGuidMapW
+ @ stub DsFreeSpnArrayA
+-@ stub DsFreeSpnArrayW
++@ stdcall DsFreeSpnArrayW(long ptr)
+ @ stub DsGetDomainControllerInfoA
+ @ stub DsGetDomainControllerInfoW
+ @ stub DsGetRdnW
+ @ stdcall DsGetSpnA(long str str long long ptr ptr ptr ptr)
+-@ stub DsGetSpnW
++@ stdcall DsGetSpnW(long wstr wstr long long ptr ptr ptr ptr)
+ @ stub DsInheritSecurityIdentityA
+ @ stub DsInheritSecurityIdentityW
+ @ stub DsIsMangledDnA
+diff --git a/dlls/ntdsapi/tests/ntdsapi.c b/dlls/ntdsapi/tests/ntdsapi.c
+index d2a5934..fb96939 100644
+--- a/dlls/ntdsapi/tests/ntdsapi.c
++++ b/dlls/ntdsapi/tests/ntdsapi.c
+@@ -178,8 +178,47 @@ static void test_DsClientMakeSpnForTargetServer(void)
+     ok( !lstrcmpW( buf, resultW ), "wrong data\n" );
+ }
+ 
++static void test_DsGetSpn(void)
++{
++    WCHAR name[MAX_COMPUTERNAME_LENGTH + 1], expect[64];
++    DWORD ret, count, size;
++    WCHAR **spns;
++
++    size = ARRAY_SIZE(name);
++    GetComputerNameExW(ComputerNameNetBIOS, name, &size);
++
++    count = 0xdeadbeef;
++    spns = NULL;
++    ret = DsGetSpnW(DS_SPN_NB_HOST, L"MSSQLSvc", NULL, 1433, 0, NULL, NULL, &count, &spns);
++    ok(!ret, "got %lu\n", ret);
++    ok(count == 1, "got %lu\n", count);
++    swprintf(expect, ARRAY_SIZE(expect), L"MSSQLSvc/%s:1433", name);
++    ok(!wcsicmp(spns[0], expect), "got %s, expected %s\n", wine_dbgstr_w(spns[0]), wine_dbgstr_w(expect));
++    DsFreeSpnArrayW(count, spns);
++
++    ret = DsGetSpnW(DS_SPN_DNS_HOST, L"MSSQLSvc", NULL, 0, 0, NULL, NULL, &count, &spns);
++    ok(!ret, "got %lu\n", ret);
++    ok(count == 1, "got %lu\n", count);
++    ok(!wcsnicmp(spns[0], L"MSSQLSvc/", 9) && !wcschr(spns[0] + 9, ':'), "got %s\n", wine_dbgstr_w(spns[0]));
++    DsFreeSpnArrayW(count, spns);
++
++    /* host SPNs don't take a service name */
++    count = 0xdeadbeef;
++    ret = DsGetSpnW(DS_SPN_DNS_HOST, L"MSSQLSvc", L"host.example.com", 1433, 0, NULL, NULL, &count, &spns);
++    ok(ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret);
++    ok(count == 0xdeadbeef, "got %lu\n", count);
++
++    /* service SPNs need one */
++    ret = DsGetSpnW(DS_SPN_SERVICE, L"MSSQLSvc", NULL, 1433, 0, NULL, NULL, &count, &spns);
++    ok(ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret);
++
++    ret = DsGetSpnW(DS_SPN_DNS_HOST, NULL, NULL, 1433, 0, NULL, NULL, &count, &spns);
++    ok(ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret);
++}
++
+ START_TEST( ntdsapi )
+ {
+     test_DsMakeSpn();
+     test_DsClientMakeSpnForTargetServer();
++    test_DsGetSpn();
+ }
+diff --git a/include/ntdsapi.h b/include/ntdsapi.h
+index 099c205..20d266c 100644
+--- a/include/ntdsapi.h
++++ b/include/ntdsapi.h
+@@ -67,6 +67,9 @@ typedef enum
+     DS_SPN_SERVICE     = 5
+ } DS_SPN_NAME_TYPE;
+ 
++DWORD WINAPI DsGetSpnW(DS_SPN_NAME_TYPE, LPCWSTR, LPCWSTR, USHORT, USHORT, LPCWSTR *, const USHORT *, DWORD *, LPWSTR **);
++void WINAPI DsFreeSpnArrayW(DWORD, LPWSTR *);
++
+ typedef enum
+ {
+     DS_SPN_ADD_SPN_OP     = 0,
+-- 
+2.43.0
+

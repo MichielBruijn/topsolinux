@@ -1,0 +1,130 @@
+From 353fd333dd0f69b0c3f39b0e4ec4065eddf1af0f Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 27 Sep 2026 08:40:39 +0200
+Subject: [PATCH 07/49] combase: Store the security blanket in the proxy
+ manager.
+
+IClientSecurity::QueryBlanket() and SetBlanket() failed, which made
+clients such as wmic abort after CoSetProxyBlanket().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016s12iuoTmYVZJQsft4SbDV
+---
+ dlls/combase/marshal.c | 60 +++++++++++++++++++++++++++++++++---------
+ 1 file changed, 48 insertions(+), 12 deletions(-)
+
+diff --git a/dlls/combase/marshal.c b/dlls/combase/marshal.c
+index 6e3d35c..ebbf462 100644
+--- a/dlls/combase/marshal.c
++++ b/dlls/combase/marshal.c
+@@ -74,6 +74,11 @@ struct proxy_manager
+     HANDLE remoting_mutex;    /* mutex used for synchronizing access to IRemUnknown */
+     MSHCTX dest_context;      /* context used for activating optimisations (LOCK) */
+     void *dest_context_data;  /* reserved context value (LOCK) */
++    DWORD authn_svc;          /* security blanket (CS cs) */
++    DWORD authz_svc;
++    DWORD authn_level;
++    DWORD imp_level;
++    DWORD capabilities;
+ };
+ 
+ static inline struct proxy_manager *impl_from_IMultiQI(IMultiQI *iface)
+@@ -1361,26 +1366,30 @@ static HRESULT WINAPI ProxyCliSec_QueryBlanket(IClientSecurity *iface,
+                                                void **pAuthInfo,
+                                                DWORD *pCapabilities)
+ {
+-    FIXME("(%p, %p, %p, %p, %p, %p, %p, %p): stub\n", pProxy, pAuthnSvc,
++    struct proxy_manager *This = impl_from_IClientSecurity( iface );
++
++    TRACE("(%p, %p, %p, %p, %p, %p, %p, %p)\n", pProxy, pAuthnSvc,
+           pAuthzSvc, ppServerPrincName, pAuthnLevel, pImpLevel, pAuthInfo,
+           pCapabilities);
+ 
++    EnterCriticalSection(&This->cs);
+     if (pAuthnSvc)
+-        *pAuthnSvc = 0;
++        *pAuthnSvc = This->authn_svc;
+     if (pAuthzSvc)
+-        *pAuthzSvc = 0;
++        *pAuthzSvc = This->authz_svc;
+     if (ppServerPrincName)
+         *ppServerPrincName = NULL;
+     if (pAuthnLevel)
+-        *pAuthnLevel = RPC_C_AUTHN_LEVEL_DEFAULT;
++        *pAuthnLevel = This->authn_level;
+     if (pImpLevel)
+-        *pImpLevel = RPC_C_IMP_LEVEL_DEFAULT;
++        *pImpLevel = This->imp_level;
+     if (pAuthInfo)
+         *pAuthInfo = NULL;
+     if (pCapabilities)
+-        *pCapabilities = EOAC_NONE;
++        *pCapabilities = This->capabilities;
++    LeaveCriticalSection(&This->cs);
+ 
+-    return E_NOTIMPL;
++    return S_OK;
+ }
+ 
+ static HRESULT WINAPI ProxyCliSec_SetBlanket(IClientSecurity *iface,
+@@ -1391,18 +1400,39 @@ static HRESULT WINAPI ProxyCliSec_SetBlanket(IClientSecurity *iface,
+                                              void *pAuthInfo,
+                                              DWORD Capabilities)
+ {
+-    FIXME("%p, %ld, %ld, %s, %ld, %ld, %p, %#lx: stub\n", pProxy, AuthnSvc, AuthzSvc,
++    struct proxy_manager *This = impl_from_IClientSecurity( iface );
++
++    FIXME("%p, %ld, %ld, %s, %ld, %ld, %p, %#lx: semi-stub\n", pProxy, AuthnSvc, AuthzSvc,
+           pServerPrincName == COLE_DEFAULT_PRINCIPAL ? "<default principal>" : debugstr_w(pServerPrincName),
+           AuthnLevel, ImpLevel, pAuthInfo, Capabilities);
+-    return E_NOTIMPL;
++
++    /* FIXME: the blanket is only stored, calls are not secured with it */
++    EnterCriticalSection(&This->cs);
++    if (AuthnSvc != RPC_C_AUTHN_DEFAULT)
++        This->authn_svc = AuthnSvc;
++    if (AuthzSvc != RPC_C_AUTHZ_DEFAULT)
++        This->authz_svc = AuthzSvc;
++    if (AuthnLevel != RPC_C_AUTHN_LEVEL_DEFAULT)
++        This->authn_level = AuthnLevel;
++    if (ImpLevel != RPC_C_IMP_LEVEL_DEFAULT)
++        This->imp_level = ImpLevel;
++    if (Capabilities != EOAC_DEFAULT)
++        This->capabilities = Capabilities;
++    LeaveCriticalSection(&This->cs);
++
++    return S_OK;
+ }
+ 
+ static HRESULT WINAPI ProxyCliSec_CopyProxy(IClientSecurity *iface,
+                                             IUnknown *pProxy, IUnknown **ppCopy)
+ {
+-    FIXME("(%p, %p): stub\n", pProxy, ppCopy);
+-    *ppCopy = NULL;
+-    return E_NOTIMPL;
++    FIXME("(%p, %p): semi-stub, returning the same proxy\n", pProxy, ppCopy);
++
++    if (!pProxy || !ppCopy) return E_INVALIDARG;
++    /* Blankets are not enforced, so sharing the proxy is equivalent for now. */
++    *ppCopy = pProxy;
++    IUnknown_AddRef(pProxy);
++    return S_OK;
+ }
+ 
+ static const IClientSecurityVtbl ProxyCliSec_Vtbl =
+@@ -1592,6 +1622,12 @@ static HRESULT proxy_manager_construct(
+     This->dest_context = MSHCTX_INPROC;
+     This->dest_context_data = NULL;
+ 
++    This->authn_svc = RPC_C_AUTHN_WINNT;
++    This->authz_svc = RPC_C_AUTHZ_NONE;
++    This->authn_level = RPC_C_AUTHN_LEVEL_CONNECT;
++    This->imp_level = RPC_C_IMP_LEVEL_IDENTIFY;
++    This->capabilities = EOAC_NONE;
++
+     EnterCriticalSection(&apt->cs);
+     /* FIXME: we are dependent on the ordering in here to make sure a proxy's
+      * IRemUnknown proxy doesn't get destroyed before the regular proxy does
+-- 
+2.43.0
+
