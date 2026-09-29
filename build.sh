@@ -30,7 +30,7 @@ bundle()  # BINARY DESTBIN DESTLIB
     ldd "$1" | awk '/=> \// {print $3}' | while read -r lib; do
         case "$(basename "$lib")" in
             libc.so*|libm.so*|libdl.so*|libpthread.so*|librt.so*|ld-linux*|libresolv.so*) ;;
-            *) cp -L -n "$lib" "$3/" ;;
+            *) [ -e "$3/$(basename "$lib")" ] || cp -L "$lib" "$3/" ;;
         esac
     done
 }
