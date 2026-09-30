@@ -1,6 +1,6 @@
 # TopSo'Linux
 
-Run **TopSolid 7** on Linux, including the local PDM server, with one installer.
+Run **TopSolid 7.20** on Linux, including the local PDM server, with one installer.
 
 TopSo'Linux is a patched [Wine](https://www.winehq.org) plus an installer that sets up TopSolid from
 TopSolid's installation media: **your own** copy, or downloaded from TopSolid's own server. It takes care of

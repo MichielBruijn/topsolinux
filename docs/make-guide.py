@@ -47,7 +47,7 @@ def footer(canvas, doc):
 APP = 'TopSolid-7.20-x86_64.AppImage'
 story = [
     Paragraph(TITLE, h1),
-    Paragraph('Short guide to installing and using TopSolid 7 with its local PDM on Linux', sub),
+    Paragraph('Short guide to installing and using TopSolid 7.20 with its local PDM on Linux', sub),
     Paragraph('TopSo\'Linux is a patched Wine plus an installer that sets up TopSolid from TopSolid\'s installation '
               'media, your own copy or downloaded from TopSolid\'s server: TopSolid, SQL Server Express with the '
               'local PDM server, the Sentinel license server and TopSolid\'Update. No Windows needed.', body),
