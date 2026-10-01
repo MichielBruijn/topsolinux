@@ -1,3 +1,5 @@
+<img src="installer/topsolinux.svg" width="96" align="right" alt="">
+
 # TopSo'Linux
 
 Run **TopSolid 7.20** on Linux, including the local PDM server, with one installer.
