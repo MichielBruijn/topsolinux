@@ -191,6 +191,37 @@ apply_scale()
     echo "$want" > "$DATA/.auto-dpi"
 }
 
+# a value in HKCU\Control Panel\International, as written in user.reg
+reg_international()
+{
+    awk -v v="$1" '/^\[Control Panel\\\\International\]/ { s = 1; next } /^\[/ { s = 0 }
+        s && index($0, "\"" v "\"=\"") == 1 { sub(/^[^=]*="/, ""); sub(/"$/, ""); print }' "$WINEPREFIX/user.reg" 2>/dev/null
+}
+
+# Wine takes the number format from the language (LC_MESSAGES); use the desktop's number format
+# (LC_NUMERIC, "Formats" in the desktop settings) instead, unless it was changed with regedit
+apply_number_format()
+{
+    local dec thou list want cur last
+    dec="$(locale decimal_point 2>/dev/null)"
+    thou="$(locale thousands_sep 2>/dev/null)"
+    [ -n "$dec" ] || return
+    # e.g. the narrow no-break space of French: a plain space
+    printf %s "$thou" | LC_ALL=C grep -q '[^ -~]' && thou=" "
+    if [ "$dec" = "," ]; then list=";"; else list=","; fi
+    want="$dec|$thou|$list"
+    cur="$(reg_international sDecimal)|$(reg_international sThousand)|$(reg_international sList)"
+    last="$(cat "$DATA/.auto-numbers" 2>/dev/null)"
+    # changed by hand, and not reset by Wine for a new locale: keep it
+    [ -n "$last" ] && [ "$cur" != "${last#*|}" ] && [ "$(reg_international LocaleName)" = "${last%%|*}" ] && return
+    if [ "$cur" != "$want" ]; then
+        "$WINE" reg add 'HKCU\Control Panel\International' /v sDecimal /d "$dec" /f >/dev/null
+        "$WINE" reg add 'HKCU\Control Panel\International' /v sThousand /d "$thou" /f >/dev/null
+        "$WINE" reg add 'HKCU\Control Panel\International' /v sList /d "$list" /f >/dev/null
+    fi
+    echo "$(reg_international LocaleName)|$want" > "$DATA/.auto-numbers"
+}
+
 stop_services()
 {
     local svc
@@ -233,9 +264,9 @@ setup_gpu
 setup_crash_dumps
 
 case "${1:-}" in
-    "")           apply_scale; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
-    update)       apply_scale; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
-    license-tool) apply_scale; run "$TOPSOLID\\TopSolid.License.exe" ;;
+    "")           apply_scale; apply_number_format; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
+    update)       apply_scale; apply_number_format; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
+    license-tool) apply_scale; apply_number_format; run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
         [ -f "${2:-}" ] || { msg "usage: $0 license FILE"; exit 1; }
         cp "$2" "$("$WINE" winepath -u "$LSERVRC" 2>/dev/null)" && msg "license installed"
@@ -243,7 +274,7 @@ case "${1:-}" in
     scale)        if [ "${2:-}" = auto ]; then rm -f "$DATA/scale" "$DATA/.auto-dpi"; apply_scale; msg "scale follows the desktop again"
                   else set_scale "${2:-}"; echo "$2" > "$DATA/scale"; msg "scale set to $2%, used from the next start of TopSolid"; fi
                   topsolid_running || "$WINESERVER" -w ;;
-    winecfg|regedit) apply_scale; run "$1" ;;
+    winecfg|regedit) apply_scale; apply_number_format; run "$1" ;;
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;
     stop)         stop_services ;;
