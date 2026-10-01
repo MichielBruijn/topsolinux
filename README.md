@@ -137,8 +137,9 @@ The installer:
    PDM server admin tool is running) and waits until its database is complete,
 6. makes the TopSolid AppImage and, if chosen, adds it to Gear Lever.
 
-On the first start, a small helper keeps TopSolid's PDM "Connection" dialog from hanging
-(`installer/tools/unstick.c` explains why).
+While TopSolid runs, a small watchdog keeps its dialogs from hanging in an endless repaint under Wine,
+such as the PDM "Connection" dialog of the first start or a command's dialog (`installer/tools/unstick.c`
+explains why).
 
 Wine needed 48 changes for TopSolid, from COM security and NTLM authentication for SQL Server to
 certificate handling, services, tooltips, a thread leak and a SpaceMouse bridge. They are in
