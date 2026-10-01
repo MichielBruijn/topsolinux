@@ -142,19 +142,13 @@ wait_for_pdm()
     [ -n "$notify" ] && wait "$notify" 2>/dev/null
 }
 
-# the first PDM login hangs under Wine (see tools/unstick.c); keep the Connection dialog alive until
-# TopSolid has saved a connection
-unstick_first_login()
+# TopSolid's dialogs can hang in an endless WM_PAINT under Wine (see tools/unstick.c); a watchdog
+# runs next to TopSolid and is stopped with the background services
+start_unstick()
 {
     local exe="$HERE/usr/lib/topsolinux/unstick.exe"
     [ -f "$exe" ] || return
-    grep -q 'name="ConnectionName"' "$USERCONFIG" 2>/dev/null && return
-    (
-        while ! grep -q 'name="ConnectionName"' "$USERCONFIG" 2>/dev/null; do
-            sleep 3
-            "$WINE" "$exe" >/dev/null 2>&1
-        done
-    ) &
+    "$WINE" "$exe" > >(tee -a "$LOG") 2>&1 &
     UNSTICK=$!
 }
 
@@ -224,7 +218,7 @@ find_version
 setup_gpu
 
 case "${1:-}" in
-    "")           apply_scale; wait_for_pdm; unstick_first_login; run "$TOPSOLID\\TopSolid.exe" ;;
+    "")           apply_scale; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
     update)       apply_scale; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
     license-tool) apply_scale; run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
