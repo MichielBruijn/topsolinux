@@ -198,29 +198,36 @@ reg_international()
         s && index($0, "\"" v "\"=\"") == 1 { sub(/^[^=]*="/, ""); sub(/"$/, ""); print }' "$WINEPREFIX/user.reg" 2>/dev/null
 }
 
-# Wine takes the number format from the language (LC_MESSAGES); use the desktop's number format
-# (LC_NUMERIC, "Formats" in the desktop settings) instead, unless it was changed with regedit
-apply_number_format()
+# Wine takes the number format and the measurement system from the language (LC_MESSAGES); use the
+# desktop's (LC_NUMERIC and LC_MEASUREMENT, "Formats" in the desktop settings) instead, unless they
+# were changed with regedit. TopSolid uses inches by default when the measurement system isn't metric.
+apply_formats()
 {
-    local dec thou list want cur last
+    local dec thou list measure want cur last
     dec="$(locale decimal_point 2>/dev/null)"
     thou="$(locale thousands_sep 2>/dev/null)"
     [ -n "$dec" ] || return
     # e.g. the narrow no-break space of French: a plain space
     printf %s "$thou" | LC_ALL=C grep -q '[^ -~]' && thou=" "
     if [ "$dec" = "," ]; then list=";"; else list=","; fi
-    want="$dec|$thou|$list"
-    cur="$(reg_international sDecimal)|$(reg_international sThousand)|$(reg_international sList)"
-    last="$(cat "$DATA/.auto-numbers" 2>/dev/null)"
+    # LC_MEASUREMENT: 1 metric, 2 US; Windows: 0 metric, 1 US
+    if [ "$(locale measurement 2>/dev/null)" = 2 ]; then measure=1; else measure=0; fi
+    want="$dec|$thou|$list|$measure"
+    cur="$(reg_international sDecimal)|$(reg_international sThousand)|$(reg_international sList)|$(reg_international iMeasure)"
+    last="$(cat "$DATA/.auto-formats" 2>/dev/null)"
     # changed by hand, and not reset by Wine for a new locale: keep it
     [ -n "$last" ] && [ "$cur" != "${last#*|}" ] && [ "$(reg_international LocaleName)" = "${last%%|*}" ] && return
     if [ "$cur" != "$want" ]; then
-        "$WINE" reg add 'HKCU\Control Panel\International' /v sDecimal /d "$dec" /f >/dev/null
-        "$WINE" reg add 'HKCU\Control Panel\International' /v sThousand /d "$thou" /f >/dev/null
-        "$WINE" reg add 'HKCU\Control Panel\International' /v sList /d "$list" /f >/dev/null
+        set_international sDecimal "$dec"
+        set_international sThousand "$thou"
+        set_international sList "$list"
+        set_international iMeasure "$measure"
     fi
-    echo "$(reg_international LocaleName)|$want" > "$DATA/.auto-numbers"
+    echo "$(reg_international LocaleName)|$want" > "$DATA/.auto-formats"
 }
+
+# stdout only: the first Wine program starts the services, and they keep its stderr (the log)
+set_international() { "$WINE" reg add 'HKCU\Control Panel\International' /v "$1" /d "$2" /f >/dev/null; }
 
 stop_services()
 {
@@ -264,9 +271,9 @@ setup_gpu
 setup_crash_dumps
 
 case "${1:-}" in
-    "")           apply_scale; apply_number_format; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
-    update)       apply_scale; apply_number_format; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
-    license-tool) apply_scale; apply_number_format; run "$TOPSOLID\\TopSolid.License.exe" ;;
+    "")           apply_scale; apply_formats; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
+    update)       apply_scale; apply_formats; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
+    license-tool) apply_scale; apply_formats; run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
         [ -f "${2:-}" ] || { msg "usage: $0 license FILE"; exit 1; }
         cp "$2" "$("$WINE" winepath -u "$LSERVRC" 2>/dev/null)" && msg "license installed"
@@ -274,7 +281,7 @@ case "${1:-}" in
     scale)        if [ "${2:-}" = auto ]; then rm -f "$DATA/scale" "$DATA/.auto-dpi"; apply_scale; msg "scale follows the desktop again"
                   else set_scale "${2:-}"; echo "$2" > "$DATA/scale"; msg "scale set to $2%, used from the next start of TopSolid"; fi
                   topsolid_running || "$WINESERVER" -w ;;
-    winecfg|regedit) apply_scale; apply_number_format; run "$1" ;;
+    winecfg|regedit) apply_scale; apply_formats; run "$1" ;;
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;
     stop)         stop_services ;;
