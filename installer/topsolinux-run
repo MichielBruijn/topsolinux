@@ -142,6 +142,19 @@ wait_for_pdm()
     [ -n "$notify" ] && wait "$notify" 2>/dev/null
 }
 
+# a crashing program leaves a minidump in its temp folder instead of only a backtrace; winedbg writes
+# where to the log; read a dump with winedbg FILE (C:\windows\syswow64\winedbg.exe for 32-bit programs)
+setup_crash_dumps()
+{
+    grep -q 'winedbg --minidump' "$WINEPREFIX/system.reg" 2>/dev/null && return
+    local key
+    for key in 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\AeDebug' \
+               'HKLM\Software\Wow6432Node\Microsoft\Windows NT\CurrentVersion\AeDebug'; do
+        # stdout only: the first Wine program starts the services, and they keep its stderr (the log)
+        "$WINE" reg add "$key" /v Debugger /d 'winedbg --minidump %ld %ld' /f >/dev/null
+    done
+}
+
 # TopSolid's dialogs can hang in an endless WM_PAINT under Wine (see tools/unstick.c); a watchdog
 # runs next to TopSolid and is stopped with the background services
 start_unstick()
@@ -201,7 +214,8 @@ run()
     msg "${1##*\\} exited with code $ret"
     # TopSolid restarts itself after the first PDM login and after updates: wait for the new instance too
     while topsolid_running; do sleep 2; done
-    [ -n "${UNSTICK:-}" ] && kill "$UNSTICK" 2>/dev/null
+    # stop the watchdog first, it would restart the license server
+    [ -n "${UNSTICK:-}" ] && { kill "$UNSTICK"; wait "$UNSTICK"; } 2>/dev/null
     stop_services
     return $ret
 }
@@ -216,6 +230,7 @@ install_prefix
 remove_auto_drives
 find_version
 setup_gpu
+setup_crash_dumps
 
 case "${1:-}" in
     "")           apply_scale; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
