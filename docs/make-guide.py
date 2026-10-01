@@ -140,8 +140,8 @@ story += [
             'Do not run two TopSolid installations at the same time: they use the same ports.',
             'Backup: copy ' + c('~/.local/share/topsolinux') + ' while TopSolid is closed. Your PDM projects are '
             'in it. Or package your projects in TopSolid.',
-            'Starting over: run the installer again and choose to replace the installation. Your PDM projects are '
-            'lost then.'),
+            'Newer TopSo\'Linux: start the new installer and choose <i>Update the AppImage</i>. Your installation '
+            'and projects stay. Starting over: choose <i>Replace</i>; your PDM projects are lost then.'),
 
     Paragraph('How this was made', h2),
     Paragraph('Completely vibe coded: the Wine changes, the installer and this guide were written by Claude Opus 5.5 '

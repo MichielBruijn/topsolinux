@@ -54,8 +54,8 @@ Without a desktop, or to script it:
 ./TopSoLinux-Installer-1.2-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
-An interrupted installation continues where it stopped when you start the installer again; an existing
-installation can be replaced. Everything is installed in `~/.local/share/topsolinux` (set `TOPSOLINUX_HOME`
+An interrupted installation continues where it stopped when you start the installer again. For an existing
+installation, the installer offers to update the TopSolid AppImage or to replace the installation. Everything is installed in `~/.local/share/topsolinux` (set `TOPSOLINUX_HOME`
 to use another folder).
 
 ### The TopSolid AppImage
@@ -66,6 +66,10 @@ minutes). Each computer needs its own license.
 
 Only use it on computers you are licensed for, and **do not publish it**: it contains TopSolid, SQL Server
 Express and Microsoft's runtimes.
+
+**Updating TopSo'Linux:** start a newer installer and choose *Update the AppImage* (or run
+`./TopSoLinux-Installer-…AppImage update-appimage [FILE]`). The TopSolid AppImage gets the newer Wine and
+starter; your installation and projects stay, and so does the installation inside the AppImage.
 
 TopSolid's service packs are installed with TopSolid'Update (right-click the icon). They update the
 installation in `~/.local/share/topsolinux`, not the AppImage file, so Gear Lever's update button does not

@@ -5,6 +5,8 @@
 # usage: TopSoLinux-Installer.AppImage                      graphical installer
 #        TopSoLinux-Installer.AppImage install --media DIR | --download DIR [--replace]
 #                                          [--gearlever | --appimage-dir DIR] [--spacemouse | --no-spacemouse]
+#        TopSoLinux-Installer.AppImage update-appimage [FILE]
+#                                          give a TopSolid AppImage this version's Wine and starter
 #
 # environment: TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
@@ -34,6 +36,7 @@ RMS_PERSISTENCE="$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS D
 GEARLEVER=it.mijorus.gearlever
 NEED_GB=45
 
+UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
 APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY=""
 
@@ -60,7 +63,7 @@ fail()
     ticker_stop
     [ -n "$PROGRESS" ] && { exec {PROGFD}>&-; wait "$PROGRESS" 2>/dev/null; PROGRESS=""; }
     # Wine's background services keep the AppImage in use; stop them so the installer can be replaced
-    "$WINESERVER" -k 2>/dev/null
+    [ $UPDATE_APPIMAGE = 1 ] || "$WINESERVER" -k 2>/dev/null
     [ $GUI = 1 ] && zenity --error --width=460 --title="$TITLE" --window-icon="$ICON" \
         --text="<b>The installation stopped.</b>\n\n$*\n\nStart the installer again to continue where it stopped.\nDetails: $LOG"
     exit 1
@@ -69,7 +72,7 @@ fail()
 info()  # TEXT [HEADING]
 {
     if [ $GUI = 1 ]; then zenity --info --width=520 --title="$TITLE" --window-icon="$ICON" --text="$*"
-    else echo "topsolinux: $*" | sed 's/<[^>]*>//g' >&2; fi
+    else printf '%b\n' "topsolinux: $*" | sed 's/<[^>]*>//g' >&2; fi
 }
 
 question()  # TEXT OK-LABEL CANCEL-LABEL
@@ -532,6 +535,67 @@ Exec=AppRun stop
 EOF
 }
 
+# Wine, the starter and its tools: what a TopSolid AppImage runs, next to the installation in prefix/
+appdir_runtime()
+{
+    local dir="$1"
+    rm -rf "$dir/usr" "$dir/AppRun"
+    mkdir -p "$dir/usr/lib/topsolinux"
+    cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
+    cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
+    rm -rf "$dir/usr/share/topsolinux"
+    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$dir/usr/lib/topsolinux/"
+    cp "$HERE/topsolinux-run" "$dir/AppRun"
+}
+
+# the TopSolid AppImage of this installation: where it was made, or where Gear Lever put it
+find_topsolid_appimage()
+{
+    local f
+    for f in "$(cat "$DATA/appimage.path" 2>/dev/null)" \
+             $(grep -lis topsolid "$HOME/.local/share/applications/"*.desktop | xargs -r grep -ohiE '/[^ "]*\.appimage' 2>/dev/null); do
+        [ -f "$f" ] && "$f" --appimage-offset >/dev/null 2>&1 && { echo "$f"; return; }
+    done
+}
+
+# A TopSolid AppImage made by an earlier version gets this version's Wine, starter and tools. The
+# installation in it stays as it was made: nothing of this computer's TopSolid or projects gets into it.
+update_appimage()  # FILE
+{
+    local old="$1" build="$DATA/appimage-build" need free
+    need=$(( $(stat -c %s "$old") * 3 / 1024 / 1024 / 1024 + 2 ))
+    free=$(( $(df -Pk "$DATA" | awk 'NR == 2 { print $4 }') / 1024 / 1024 ))
+    [ "$free" -ge "$need" ] || fail "Updating the TopSolid AppImage needs $need GB of free disk space in $DATA, there is $free GB."
+    say "Updating the TopSolid AppImage (5-10 minutes)"
+    rm -rf "$build"
+    mkdir -p "$build"
+    (cd "$build" && "$old" --appimage-extract >> "$LOG" 2>&1) || fail "Unpacking $old failed."
+    [ -d "$build/squashfs-root/prefix" ] || { rm -rf "$build"; fail "$old is not a TopSolid AppImage made by $NAME."; }
+    appdir_runtime "$build/squashfs-root"
+    ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
+        --runtime-file "$TOOLS/runtime-x86_64" "$build/squashfs-root" "$old.part" >> "$LOG" 2>&1 ||
+        { rm -rf "$build" "$old.part"; fail "Making the AppImage failed."; }
+    # a running TopSolid keeps the old file until it is closed
+    mv "$old.part" "$old" || fail "$old could not be replaced."
+    rm -rf "$build"
+    echo "$old" > "$DATA/appimage.path"
+}
+
+run_update_appimage()
+{
+    local old="${UPDATE_FROM:-$(find_topsolid_appimage)}"
+    if [ -z "$old" ] && [ $GUI = 1 ]; then
+        old="$(zenity --file-selection --title="Choose the TopSolid AppImage" --window-icon="$ICON" \
+            --filename="$HOME/" --file-filter="AppImage | *.AppImage *.appimage")" || exit 0
+    fi
+    [ -f "$old" ] || fail "No TopSolid AppImage found; name it: $0 update-appimage FILE"
+    echo "=== $(date '+%F %T') $TITLE, update $old" >> "$LOG"
+    progress_start
+    update_appimage "$old"
+    progress_stop
+    info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${old/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it."
+}
+
 # A self-contained AppImage of this installation, e.g. for colleagues with the same license.
 # The copy uses hard links, so it takes no extra disk space and leaves the installation untouched;
 # files that are changed in the copy are replaced, never edited in place.
@@ -544,12 +608,7 @@ step_appimage()
     say "Making the TopSolid AppImage (10-20 minutes)"
     stop_services
     rm -rf "$build"
-    mkdir -p "$dir/usr/lib/topsolinux"
-    cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
-    cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
-    rm -rf "$dir/usr/share/topsolinux"
-    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$dir/usr/lib/topsolinux/"
-    cp "$HERE/topsolinux-run" "$dir/AppRun"
+    appdir_runtime "$dir"
     if [ -f "$DATA/topsolid.png" ]; then cp "$DATA/topsolid.png" "$dir/topsolid.png"; ln -s topsolid.png "$dir/.DirIcon"
     else cp "$ICON" "$dir/topsolid.svg"; ln -s topsolid.svg "$dir/.DirIcon"; fi
     desktop_file > "$dir/topsolid.desktop"
@@ -657,8 +716,15 @@ check_existing()
     if grep -qx finish "$STATE" 2>/dev/null; then
         if [ $REPLACE = 0 ]; then
             [ $GUI = 1 ] || { echo "TopSolid is already installed in $DATA; use --replace to install it again" >&2; exit 1; }
-            question "<b>TopSolid is already installed with $NAME.</b>\n\nReplace it with a new installation? The TopSolid installation, its local PDM and the projects in it are removed." \
-                "Replace" "Cancel" || exit 0
+            local choice
+            choice="$(zenity --question --width=560 --title="$TITLE" --window-icon="$ICON" \
+                --text="<b>TopSolid is already installed with $NAME.</b>\n\n<b>Update the AppImage</b>: the TopSolid AppImage gets the Wine and starter of $NAME $TSL_VERSION. Your installation and projects stay.\n\n<b>Replace</b>: install TopSolid again. The installation, its local PDM and the projects in it are removed." \
+                --ok-label="Update the AppImage" --cancel-label="Cancel" --extra-button="Replace")" && choice=update
+            case "$choice" in
+                update)  UPDATE_APPIMAGE=1; return ;;
+                Replace) ;;
+                *)       exit 0 ;;
+            esac
         fi
         remove_installation
     elif [ $GUI = 1 ] && [ $REPLACE = 0 ]; then
@@ -675,6 +741,7 @@ ask()
         "Next" "Cancel" || exit 0
 
     check_existing
+    [ $UPDATE_APPIMAGE = 1 ] && return
 
     local guess choice
     guess="$(find_media)"
@@ -756,6 +823,12 @@ case "${1:-}" in
         mkdir -p "$DATA"
         check_existing
         ;;
+    update-appimage)
+        UPDATE_APPIMAGE=1
+        [ -n "${2:-}" ] && UPDATE_FROM="$(readlink -f "$2")"
+        [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null && GUI=1
+        mkdir -p "$DATA"
+        ;;
     "")
         [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null ||
             { echo "no display or zenity; use: $0 install --media DIR" >&2; exit 1; }
@@ -765,6 +838,7 @@ case "${1:-}" in
         ;;
     *)
         echo "usage: $0 [install --media DIR | --download DIR [--replace] [--gearlever | --appimage-dir DIR] [--spacemouse | --no-spacemouse]]" >&2
+        echo "       $0 update-appimage [FILE]" >&2
         exit 1 ;;
 esac
 # with Gear Lever the AppImage is made in Downloads, Gear Lever then moves it to its own folder
@@ -772,6 +846,7 @@ esac
 [ -n "$APPIMAGE_DIR" ] || APPIMAGE_DIR="$DEFAULT_APPIMAGE_DIR"
 
 check_system
+[ $UPDATE_APPIMAGE = 1 ] && { run_update_appimage; exit 0; }
 echo "=== $(date '+%F %T') $TITLE, media $MEDIA, gearlever $USE_GEARLEVER, appimage $APPIMAGE_DIR" >> "$LOG"
 
 progress_start
