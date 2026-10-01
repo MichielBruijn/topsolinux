@@ -126,6 +126,9 @@ story += [
             'SpaceMouse: works through spacenavd, no 3Dconnexion driver needed. Axis directions and speeds are in '
             'the registry under ' + c('HKCU\\Software\\Wine\\TDxNavLib') + ' (' + c('AxisSigns') + ', '
             + c('AxisMap') + ', ' + c('TranslationSpeed') + ', ' + c('RotationSpeed') + ').',
+            'Numbers and units follow the desktop\'s <i>Formats</i>: Dutch formats give a decimal comma and mm. '
+            'To change them: ' + c('regedit') + ', ' + c('HKCU\\Control Panel\\International') + ' ('
+            + c('sDecimal') + ', ' + c('iMeasure') + ' 0 = metric).',
             'Ubuntu: do not install the package <b>fuse</b>, it removes parts of the desktop. What AppImages need is '
             'already there.'),
 
@@ -145,7 +148,7 @@ story += [
               '(Anthropic), directed and tested by a TopSolid user who wanted TopSolid on a Linux desktop.', body),
 ]
 
-doc = SimpleDocTemplate(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm,
-                        bottomMargin=20 * mm, title=TITLE, author='', subject='', creator='', producer='')
+doc = SimpleDocTemplate(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=15 * mm,
+                        bottomMargin=18 * mm, title=TITLE, author='', subject='', creator='', producer='')
 doc.build(story, onFirstPage=footer, onLaterPages=footer)
 print(OUT)
