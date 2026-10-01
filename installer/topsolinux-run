@@ -26,6 +26,9 @@ export PATH="$HERE/usr/bin:$PATH"
 export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 # no Wine menu or desktop entries: they would point at a prefix without this Wine
 export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+# no drive letters for USB sticks and SD cards: Wine follows udisks on the system bus, and a card that
+# drops out made TopSolid hang. They stay reachable through Z:
+export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/dev/null/no-system-bus"
 PLACEHOLDER="__wineuser__"
 MARKER="$WINEPREFIX/.topsolinux"
 LOG="$DATA/topsolid.log"
@@ -50,6 +53,18 @@ install_prefix()
             xargs -0 -r sed -i "s/$PLACEHOLDER/$user/g"
     fi
     touch "$MARKER"
+}
+
+# remove the drive letters Wine made for removable drives before (see DBUS_SYSTEM_BUS_ADDRESS)
+remove_auto_drives()
+{
+    local l
+    for l in "$WINEPREFIX"/dosdevices/?:; do
+        case "$(readlink "$l")" in /media/*|/run/media/*) rm -f "$l" ;; esac
+    done
+    for l in "$WINEPREFIX"/dosdevices/?::; do
+        [ -L "${l%:}" ] || rm -f "$l"
+    done
 }
 
 # TopSolid version installed in the prefix, e.g. 7.20
@@ -204,6 +219,7 @@ echo "=== $(date '+%F %T') $0 ${*:-}" >&2
 # Wine's NTLM uses Samba's ntlm_auth (the PDM logs in to SQL Server with it); prefer the system's
 ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"
 install_prefix
+remove_auto_drives
 find_version
 setup_gpu
 
