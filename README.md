@@ -95,6 +95,12 @@ Right-click TopSolid's icon in the app menu for TopSolid'Update, the license too
 
 TopSolid follows the scale of your desktop by itself, unless you set one with `scale` or in Wine's settings.
 
+Numbers and units follow the *Formats* of your desktop (Settings → Region & Language), not its language:
+with Dutch formats on an English desktop, TopSolid stays English but uses a decimal comma, and with a metric
+region new documents use millimetres. To set them yourself, start `regedit` and change `sDecimal`,
+`sThousand`, `sList` and `iMeasure` (0 metric, 1 US) in `HKEY_CURRENT_USER\Control Panel\International`;
+values changed there are kept.
+
 Environment variables: `TOPSOLID_SCALE=150` (same as `scale`), `TOPSOLID_GPU=nvidia|default`
 (laptops with NVIDIA and Intel/AMD graphics use the NVIDIA GPU automatically).
 
