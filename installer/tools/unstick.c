@@ -11,6 +11,9 @@
  * while its thread still answers messages (so TopSolid is pumping, not computing), it validates
  * the pending windows of that thread. That ends the loop; the next repaint draws them normally.
  *
+ * It also restarts the Sentinel license server when it stops while TopSolid runs (it crashed once
+ * under Wine); without it TopSolid loses its licenses and hangs in the license dialog.
+ *
  * Build: x86_64-w64-mingw32-gcc -O2 -o unstick.exe unstick.c
  */
 #include <windows.h>
@@ -20,6 +23,8 @@
 #define POLL_MS     1000
 #define STUCK_POLLS 5
 #define MAX_SEEN    256
+#define SERVICE_POLLS 10
+#define LICENSE_SERVICE L"Sentinel RMS License Manager"
 
 struct seen { HWND hwnd; int polls; };
 static struct seen seen[MAX_SEEN], now[MAX_SEEN];
@@ -71,14 +76,39 @@ static BOOL CALLBACK check_top(HWND hwnd, LPARAM lp)
     return TRUE;
 }
 
+/* restart the license server if it stopped, unless it was set not to start automatically */
+static void keep_license_server(void)
+{
+    union { QUERY_SERVICE_CONFIGW cfg; BYTE buf[8192]; } u;
+    SC_HANDLE scm, svc;
+    SERVICE_STATUS st;
+    DWORD need;
+
+    if (!(scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT))) return;
+    if ((svc = OpenServiceW(scm, LICENSE_SERVICE, SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG | SERVICE_START)))
+    {
+        if (QueryServiceStatus(svc, &st) && st.dwCurrentState == SERVICE_STOPPED &&
+            QueryServiceConfigW(svc, &u.cfg, sizeof(u), &need) && u.cfg.dwStartType == SERVICE_AUTO_START)
+        {
+            printf("unstick: the license server had stopped, restarting it: %s\n",
+                   StartServiceW(svc, 0, NULL) ? "ok" : "failed");
+            fflush(stdout);
+        }
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
 int main(void)
 {
     DWORD_PTR res;
     DWORD tid;
+    unsigned int polls = 0;
 
     for (;;)
     {
         Sleep(POLL_MS);
+        if (++polls % SERVICE_POLLS == 0) keep_license_server();
         nnow = 0;
         stuck = NULL;
         EnumWindows(check_top, 0);
