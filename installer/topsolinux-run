@@ -186,8 +186,10 @@ topsolid_running()
 run()
 {
     # an AppImage is unmounted when this script exits, so keep it alive until all Wine processes are gone
-    "$WINE" "$@"
+    # stdout too: Wine's crash handler (winedbg --auto) writes its backtrace there
+    "$WINE" "$@" > >(tee -a "$LOG")
     local ret=$?
+    msg "${1##*\\} exited with code $ret"
     # TopSolid restarts itself after the first PDM login and after updates: wait for the new instance too
     while topsolid_running; do sleep 2; done
     [ -n "${UNSTICK:-}" ] && kill "$UNSTICK" 2>/dev/null
