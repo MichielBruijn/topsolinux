@@ -39,7 +39,7 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#777777'))
-    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.4 · unofficial, not affiliated with TOPSOLID SAS")
+    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.5 · unofficial, not affiliated with TOPSOLID SAS")
     canvas.drawRightString(190 * mm, 12 * mm, f'page {doc.page}')
     canvas.restoreState()
 
@@ -62,7 +62,7 @@ story = [
             'automatically.'),
 
     Paragraph('2. Installing', h2),
-    bullets('Make ' + c('TopSoLinux-Installer-1.4-x86_64.AppImage') + ' executable (file properties, or '
+    bullets('Make ' + c('TopSoLinux-Installer-1.5-x86_64.AppImage') + ' executable (file properties, or '
             + c('chmod +x') + ') and start it.',
             'Choose the installation media (found automatically in Downloads, your home folder or a USB drive), '
             'another folder, or the download from TopSolid\'s server.',
