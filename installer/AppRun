@@ -154,7 +154,7 @@ step_seconds()
     case "$1" in
         download) echo 1500 ;; prefix) echo 60 ;; runtimes) echo 420 ;; setup) echo 300 ;; sqlsetup) echo 150 ;;
         extras) echo 15 ;; sql) echo 360 ;; pdm) echo 90 ;; finish) echo 15 ;; spacemouse) echo 40 ;;
-        appimage) echo 900 ;; gearlever) echo 60 ;; *) echo 60 ;;
+        appimage) echo 300 ;; gearlever) echo 60 ;; *) echo 60 ;;
     esac
 }
 
@@ -684,9 +684,9 @@ update_appimage()  # FILE
     need=$(( $(stat -c %s "$old") * 3 / 1024 / 1024 / 1024 + 2 ))
     free=$(( $(df -Pk "$DATA" | awk 'NR == 2 { print $4 }') / 1024 / 1024 ))
     [ "$free" -ge "$need" ] || fail "Updating the TopSolid AppImage needs $need GB of free disk space in $DATA, there is $free GB."
-    LAST_TOTAL="total 0 100 600"
+    LAST_TOTAL="total 0 100 240"
     progress_send "$LAST_TOTAL"
-    part 150 "Unpacking the TopSolid AppImage"
+    part 60 "Unpacking the TopSolid AppImage"
     rm -rf "$build"
     mkdir -p "$build"
     (cd "$build" && "$old" --appimage-extract >> "$LOG" 2>&1) || fail "Unpacking $old failed."
@@ -694,7 +694,7 @@ update_appimage()  # FILE
     appdir_runtime "$build/squashfs-root"
     # older ones may have an SVG icon, which file managers don't show
     [ -f "$build/squashfs-root/topsolid.png" ] || app_icon "$build/squashfs-root"
-    part 450 "Making the TopSolid AppImage with $NAME $TSL_VERSION"
+    part 180 "Making the TopSolid AppImage with $NAME $TSL_VERSION"
     PART="$old.part"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
         --runtime-file "$TOOLS/runtime-x86_64" "$build/squashfs-root" "$old.part" >> "$LOG" 2>&1 ||
