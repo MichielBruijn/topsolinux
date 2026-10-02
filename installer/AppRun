@@ -368,6 +368,16 @@ step_runtimes()
     "$WINESERVER" -w
 }
 
+# TopSolid's setup runs SQL Server's setup, which fails or waits on a dialog that doesn't respond under
+# Wine; stop it as soon as it starts (only Wine processes, whose command lines start with a drive letter)
+stop_sql_setups()
+{
+    while kill -0 $$ 2>/dev/null && sleep 2; do
+        pkill -u "$(id -u)" -i -f '^[a-z]:\\.*(\\SQL Server Express\\SETUP\.EXE|\\Setup Bootstrap\\SQL2019\\)' &&
+            log "stopped the SQL Server setup that TopSolid's setup started"
+    done
+}
+
 step_setup()
 {
     progress_stop
@@ -375,12 +385,14 @@ step_setup()
     info "<b>Now TopSolid's own installer opens.</b>
 
 1. Choose the modules you use, click <b>Install</b> and accept the license agreement.
-2. <span foreground='#c01c28'><b>The installation of SQL Server fails under Wine. That is expected.</b></span>
-    Click <b>Cancel</b> (or OK, then Cancel and OK on its errors), close the log window and click <b>Close</b>.
-
-$NAME installs and sets up SQL Server itself afterwards."
+2. <span foreground='#c01c28'><b>Its installation of SQL Server stops with an error. That is expected.</b></span>
+    $NAME stops it, because SQL Server's own setup doesn't work under Wine and $NAME installs SQL Server itself
+    afterwards. Close the error messages and the log window, and click <b>Close</b>."
     log "running $MEDIA/Setup.exe"
+    stop_sql_setups &
+    local stopper=$!
     (cd "$MEDIA" && "$WINE" Setup.exe >> "$LOG" 2>&1)
+    kill "$stopper" 2>/dev/null
     # the bootstrapper may leave msiexec or the SQL setup running for a moment
     local i
     for i in $(seq 60); do
@@ -401,11 +413,12 @@ step_sqlsetup()
     [ -f "$SQLDIR/Binn/sqlservr.exe" ] && return 0
     [ -f "$setup" ] || { say "SQL Server Express is not on the installation media"; return 1; }
     say "Installing SQL Server Express from the installation media"
-    # its setup engine sometimes dies on an Xlib race in its progress window; a second run continues
+    # quiet, without the progress window in which its setup engine once died on an Xlib race; a second run
+    # continues if it stops anyway
     local try i
     for try in 1 2; do
         [ $try = 2 ] && part 120 "Installing SQL Server Express again (its setup stopped)"
-        (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
+        (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /Q /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
             /UPDATEENABLED=False /IACCEPTSQLSERVERLICENSETERMS /SUPPRESSPRIVACYSTATEMENTNOTICE \
             "/SQLSVCACCOUNT=NT AUTHORITY\NETWORK SERVICE" "/SQLSYSADMINACCOUNTS=BUILTIN\Administrators" \
             /TCPENABLED=1 /NPENABLED=1 /SQLCOLLATION=SQL_Latin1_General_CP1_CI_AS /BROWSERSVCSTARTUPTYPE=Disabled >> "$LOG" 2>&1)

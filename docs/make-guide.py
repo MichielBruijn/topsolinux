@@ -69,8 +69,8 @@ story = [
             'Options: <b>Gear Lever</b> puts TopSolid in your app menu (recommended; it is installed when missing). '
             '<b>SpaceMouse support</b> installs spacenavd and asks for your password.',
             'TopSolid\'s own installer opens: choose the modules you use, click Install and accept the license '
-            'agreement. <b>SQL Server\'s installation fails under Wine. That is expected:</b> close its errors and the '
-            'setup. TopSo\'Linux installs and sets up SQL Server itself.',
+            'agreement. <b>Its installation of SQL Server stops with an error. That is expected:</b> TopSo\'Linux '
+            'stops it and installs SQL Server itself. Close the errors and the setup.',
             'Wait: the whole installation takes 30 to 60 minutes. If it is interrupted, start the installer again '
             'and it continues where it stopped.'),
     Paragraph('Everything is installed in ' + c('~/.local/share/topsolinux') + '. The result is ' + c(APP) + ', a '
