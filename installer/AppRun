@@ -372,8 +372,8 @@ step_runtimes()
 # Wine; stop it as soon as it starts (only Wine processes, whose command lines start with a drive letter)
 stop_sql_setups()
 {
-    while kill -0 $$ 2>/dev/null && sleep 2; do
-        pkill -u "$(id -u)" -i -f '^[a-z]:\\.*(\\SQL Server Express\\SETUP\.EXE|\\Setup Bootstrap\\SQL2019\\)' &&
+    while kill -0 $$ 2>/dev/null && sleep 1; do
+        pkill -u "$(id -u)" -i -f '^[a-z]:\\.*(\\SQL Server Express\\|\\Setup Bootstrap\\SQL2019\\)' &&
             log "stopped the SQL Server setup that TopSolid's setup started"
     done
 }
@@ -385,9 +385,9 @@ step_setup()
     info "<b>Now TopSolid's own installer opens.</b>
 
 1. Choose the modules you use, click <b>Install</b> and accept the license agreement.
-2. <span foreground='#c01c28'><b>Its installation of SQL Server stops with an error. That is expected.</b></span>
-    $NAME stops it, because SQL Server's own setup doesn't work under Wine and $NAME installs SQL Server itself
-    afterwards. Close the error messages and the log window, and click <b>Close</b>."
+2. <span foreground='#c01c28'><b>It reports \"Failed to install this component: Microsoft SQL Server 2019 Express\". That is expected.</b></span>
+    $NAME stops SQL Server's own setup, which doesn't work under Wine, and installs SQL Server itself afterwards.
+    Click <b>OK</b>, close the log window if one opens, and click <b>Close</b>."
     log "running $MEDIA/Setup.exe"
     stop_sql_setups &
     local stopper=$!
