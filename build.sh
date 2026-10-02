@@ -67,7 +67,7 @@ chmod +x "$TOOLS/appimagetool.AppImage"
 # --- topsolinux itself ------------------------------------------------------------------------------
 x86_64-w64-mingw32-gcc -O2 -s -o "$TOOLS/unstick.exe" "$TOP/installer/tools/unstick.c"
 # the managed stacks for the debug command (needs the .NET SDK; DOTNET=path/to/dotnet)
-DOTNET="${DOTNET:-$(command -v dotnet)}"
+DOTNET="${DOTNET:-$(command -v dotnet || true)}"
 if [ -n "$DOTNET" ]; then
     DOTNET_CLI_TELEMETRY_OPTOUT=1 "$DOTNET" build "$TOP/installer/tools/clrstack/clrstack.csproj" -c Release -nologo \
         -v q -o "$TOOLS/clrstack" >/dev/null || exit 1
@@ -85,8 +85,11 @@ strings -el "$DIR/usr/lib/wine/x86_64-windows/appwiz.cpl" | grep -o 'wine-gecko-
 cp "$TOP/README.md" "$TOP/LICENSE" "$TOP/NOTICE.md" "$DIR/usr/share/doc/topsolinux/"
 cp "$TOP/installer/AppRun" "$TOP/installer/topsolinux-run" "$DIR/"
 chmod +x "$DIR/AppRun" "$DIR/topsolinux-run"
-cp "$TOP/installer/topsolinux.svg" "$DIR/topsolinux.svg"
-ln -s topsolinux.svg "$DIR/.DirIcon"
+# the dialogs use the SVG; file managers and Gear Lever want a PNG as .DirIcon
+cp "$TOP/installer/topsolinux.svg" "$TOP/installer/topsolinux.png" "$DIR/"
+ln -s topsolinux.png "$DIR/.DirIcon"
+mkdir -p "$DIR/usr/share/icons/hicolor/256x256/apps"
+cp "$TOP/installer/topsolinux.png" "$DIR/usr/share/icons/hicolor/256x256/apps/"
 cat > "$DIR/topsolinux.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
