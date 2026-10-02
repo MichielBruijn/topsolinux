@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """The installer's progress window: a bar for the current part and one for the whole installation.
 
-usage: progress.py --title TITLE --heading TEXT [--icon PNG]    reads commands from stdin
+usage: progress.py --title TITLE --heading TEXT [--icon PNG] [--since EPOCH]    reads commands from stdin
        progress.py --check                                     exit 0 if GTK 3 with cairo is available
 
+--since: when the installation started, so the time shown runs on when the window is opened again.
+
 Commands, one per line:
+  heading TEXT        the phase of the installation (shown in bold)
   # TEXT              what happens now (shown above the part bar)
   part SECONDS        a new part; the bar estimates its progress from the expected duration
   N                   the part is at N percent (replaces the estimate, e.g. for a download)
@@ -124,7 +127,7 @@ class Rod(Gtk.DrawingArea):
 
 
 class Progress(Gtk.Window):
-    def __init__(self, title, heading, icon):
+    def __init__(self, title, heading, icon, since):
         super().__init__(title=title)
         self.set_default_size(560, -1)
         self.set_resizable(False)
@@ -146,9 +149,9 @@ class Progress(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         outer.pack_start(box, True, True, 0)
 
-        head = Gtk.Label(xalign=0)
-        head.set_markup('<big><b>%s</b></big>' % GLib.markup_escape_text(heading))
-        box.pack_start(head, False, False, 0)
+        self.head = Gtk.Label(xalign=0)
+        self.set_heading(heading)
+        box.pack_start(self.head, False, False, 0)
 
         self.text = Gtk.Label(label='Preparing...', xalign=0)
         self.text.set_line_wrap(True)
@@ -176,6 +179,8 @@ class Progress(Gtk.Window):
         box.pack_start(buttons, False, False, 10)
 
         self.start = time.monotonic()
+        # the time shown counts from the start of the installation
+        self.shown_start = self.start - max(0.0, time.time() - since) if since else self.start
         self.part_start, self.part_secs, self.part_exact = self.start, 0, None
         self.total_start, self.total_from, self.total_to, self.total_secs = self.start, 0.0, 0.0, 0
 
@@ -191,6 +196,9 @@ class Progress(Gtk.Window):
         r.pack_start(rod, True, True, 0)
         r.pack_start(pct, False, False, 0)
         return r
+
+    def set_heading(self, text):
+        self.head.set_markup('<big><b>%s</b></big>' % GLib.markup_escape_text(text))
 
     def on_cancel(self, *args):
         self.cancelled = True
@@ -212,6 +220,8 @@ class Progress(Gtk.Window):
         words = line.split()
         if line.startswith('#'):
             self.text.set_text(line[1:].strip())
+        elif words[:1] == ['heading']:
+            self.set_heading(line[len('heading'):].strip())
         elif words[:1] == ['part'] and len(words) == 2:
             self.part_start, self.part_secs, self.part_exact = now, float(words[1]), None
         elif words[:1] == ['total'] and len(words) == 4:
@@ -236,7 +246,7 @@ class Progress(Gtk.Window):
         self.part.fraction = part
         self.part_pct.set_text('%d %%' % (part * 100))
         self.total_pct.set_text('%d %%' % (self.total.fraction * 100))
-        e = int(now - self.start)
+        e = int(now - self.shown_start)
         self.elapsed.set_text('%d:%02d' % (e // 60, e % 60))
         turn = 2 * math.pi * (now - self.start) / TURN_SECONDS
         self.part.angle = turn * 1.5
@@ -247,12 +257,13 @@ class Progress(Gtk.Window):
 
 
 def main():
-    args = {'--title': "TopSo'Linux", '--heading': '', '--icon': None}
+    args = {'--title': "TopSo'Linux", '--heading': '', '--icon': None, '--since': None}
     it = iter(sys.argv[1:])
     for a in it:
         if a in args:
             args[a] = next(it, None)
-    win = Progress(args['--title'], args['--heading'], args['--icon'])
+    since = float(args['--since']) if args['--since'] else None
+    win = Progress(args['--title'], args['--heading'], args['--icon'], since)
     Gtk.main()
     sys.exit(3 if win.cancelled else 0)
 

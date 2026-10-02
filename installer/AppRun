@@ -38,7 +38,7 @@ NEED_GB=45
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
-APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL=""
+APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL="" LAST_HEADING="" PROGRESS_SINCE=""
 
 # --- user interface -----------------------------------------------------------------------------
 
@@ -92,7 +92,9 @@ progress_start()  # HEADING
     # a descriptor chosen by bash: a fixed one could be the AppImage runtime's keepalive pipe, and closing
     # that unmounts the AppImage
     if python3 "$TOOLS/progress.py" --check; then
-        exec {PROGFD}> >(python3 "$TOOLS/progress.py" --title "$TITLE" --heading "$1" --icon "$HERE/topsolinux.png" 2>/dev/null
+        [ -n "$PROGRESS_SINCE" ] || PROGRESS_SINCE=$(date +%s)
+        exec {PROGFD}> >(python3 "$TOOLS/progress.py" --title "$TITLE" --heading "$1" --icon "$HERE/topsolinux.png" \
+                             --since "$PROGRESS_SINCE" 2>/dev/null
                          [ $? = 3 ] && cancel_requested)
     else
         # without GTK for Python: zenity's single pulsating bar, with the texts only
@@ -101,6 +103,7 @@ progress_start()  # HEADING
                          [ $? = 1 ] && cancel_requested)
     fi
     PROGRESS=$!
+    [ -n "$LAST_HEADING" ] && progress_send "$LAST_HEADING"
     [ -n "$LAST_TOTAL" ] && progress_send "$LAST_TOTAL"
 }
 
@@ -155,6 +158,20 @@ step_seconds()
     esac
 }
 
+# the phase a step belongs to, shown as the progress window's heading
+step_heading()
+{
+    case "$1" in
+        download) echo "Downloading TopSolid" ;;
+        prefix|runtimes) echo "Preparing Windows (Wine, .NET, Visual C++)" ;;
+        sqlsetup|sql) echo "Setting up SQL Server" ;;
+        pdm) echo "Setting up the local PDM" ;;
+        appimage) echo "Making the TopSolid AppImage" ;;
+        gearlever) echo "Adding TopSolid to the app menu" ;;
+        *) echo "Installing TopSolid" ;;
+    esac
+}
+
 # where a step of $PLAN starts and ends on the total progress bar: FROM TO SECONDS
 step_range()
 {
@@ -172,7 +189,9 @@ step_range()
 step()
 {
     grep -qx "$1" "$STATE" 2>/dev/null && return
+    LAST_HEADING="heading $(step_heading "$1")"
     LAST_TOTAL="total $(step_range "$1")"
+    progress_send "$LAST_HEADING"
     progress_send "$LAST_TOTAL"
     progress_send "part $(step_seconds "$1")"
     "step_$1" || fail "${LAST_SAY:-Step $1 failed.}"
