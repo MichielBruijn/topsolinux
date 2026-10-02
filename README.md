@@ -22,10 +22,12 @@ Both with TopSolid 7.20 (media 7.20.400.0 RTM).
 
 Briefly tested, with care:
 
-- **WSL2 on Windows** (WSLg, over Remote Desktop, without GPU acceleration): a TopSolid AppImage copied from
-  the laptop above starts and works with a company's **PDM server and license server on Windows**. Known so
-  far: the start can take a minute or two longer, TopSolid hung once (with a TopSolid AppImage from before the
-  watchdog of 1.2; cause not found), and a SpaceMouse needs `usbipd-win` to reach WSL.
+- **WSL2 on Windows** (WSLg; on the computer itself and over Remote Desktop without GPU acceleration): a
+  TopSolid AppImage copied from the laptop above starts and works with a company's **PDM server and license
+  server on Windows**. Known so far: TopSolid's windows can't be dragged (WSLg's window manager ignores the
+  request; Windows+Shift+Up/Down still works), the start can take a minute or two longer, TopSolid hung once
+  (with a TopSolid AppImage from before the watchdog of 1.2; cause not found), and a SpaceMouse needs
+  `usbipd-win` to reach WSL.
 
 ## What you need
 
