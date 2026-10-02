@@ -49,8 +49,8 @@ Briefly tested, with care:
    - options: add TopSolid to your app menu with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)
      (recommended, on by default; Flatpak and Gear Lever are installed when missing) and SpaceMouse support.
 4. TopSolid's own installer opens. Choose the modules you use, click Install and accept the license
-   agreement. **SQL Server's installation fails under Wine. That is expected:** close its errors and the
-   setup. TopSo'Linux installs and sets up SQL Server itself afterwards.
+   agreement. **Its installation of SQL Server stops with an error. That is expected:** TopSo'Linux stops
+   it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
 The result is a TopSolid AppImage (`TopSolid-7.20-x86_64.AppImage`). With Gear Lever it is in your app menu
