@@ -28,6 +28,7 @@ Do not publish it.
 | Samba `ntlm_auth` and the libraries it needs | GPL 3 (Samba) and the licenses of the libraries | Ubuntu source packages, versions listed in `bundled-versions.txt` inside the installer (`usr/share/doc/topsolinux`), available from https://launchpad.net/ubuntu/+source/samba |
 | cabextract, libmspack | GPL 3, LGPL 2.1 | https://www.cabextract.org.uk/ |
 | appimagetool, AppImage type 2 runtime | MIT | https://github.com/AppImage |
+| ClrMD (Microsoft.Diagnostics.Runtime) and the libraries it needs, in the `debug` tool | MIT | https://github.com/microsoft/clrmd, https://github.com/dotnet/runtime |
 
 On request, the exact source code of every bundled GPL or LGPL component in a released installer is
 provided for three years after that release (open an issue on the project page).

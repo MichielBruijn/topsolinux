@@ -545,6 +545,8 @@ appdir_runtime()
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
     cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$dir/usr/lib/topsolinux/"
+    [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
+    mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"
     cp "$HERE/topsolinux-run" "$dir/AppRun"
 }
 

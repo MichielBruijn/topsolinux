@@ -10,6 +10,7 @@
 #   scale auto        follow the desktop's scale again (the default)
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
+#   debug [PROGRAM]   write the stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
 #
 # environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_SCALE=PERCENT (same as scale),
 #              TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
@@ -233,6 +234,38 @@ apply_formats()
 # stdout only: the first Wine program starts the services, and they keep its stderr (the log)
 set_international() { "$WINE" reg add 'HKCU\Control Panel\International' /v "$1" /d "$2" /f >/dev/null; }
 
+# the managed and native stacks of a hanging program, for a bug report; attaches only to that program
+debug_program()
+{
+    local name="${1:-TopSolid}" out pid tids t clr="$HERE/usr/lib/topsolinux/clrstack"
+    name="${name%.exe}.exe"
+    out="$HOME/topsolid-debug-$(date +%Y%m%d-%H%M%S).txt"
+    pid="$("$WINE" winedbg --command "info process" 2>/dev/null |
+        awk -v n="'$name'" 'tolower($NF) == tolower(n) { gsub(/[^0-9a-fA-F]/, "", $1); print $1; exit }')"
+    # winedbg started the prefix and its services; nothing to keep them running for
+    [ -n "$pid" ] || { msg "$name is not running"; topsolid_running || stop_services; exit 1; }
+    tids="$("$WINE" winedbg --command "info thread" 2>/dev/null |
+        awk -v p="$pid" '/^[0-9a-fA-F]/ { cur = $1 } /^\t/ && cur == p { print $1 }')"
+    msg "writing the stacks of $name to $out"
+    {
+        echo "=== $name (pid $pid), $(date '+%F %T'), TopSo'Linux $(cat "$HERE/usr/share/doc/topsolinux/VERSION" 2>/dev/null)"
+        echo; echo "=== managed stacks"
+        if [ -f "$clr/clrstack.exe" ]; then
+            # .NET doesn't load programs from Z:, so it runs from the prefix
+            rm -rf "$WINEPREFIX/drive_c/windows/temp/clrstack"
+            cp -a "$clr" "$WINEPREFIX/drive_c/windows/temp/"
+            "$WINE" 'C:\windows\temp\clrstack\clrstack.exe' "$pid"
+        else
+            echo "(not in this AppImage)"
+        fi
+        echo; echo "=== native stacks"
+        { echo "attach 0x$pid"; for t in $tids; do echo "bt 0x$t"; done; echo detach; echo quit; } | "$WINE" winedbg
+        echo; echo "=== end of the log"
+        tail -40 "$LOG"
+    } > "$out" 2>&1
+    msg "done: $out"
+}
+
 stop_services()
 {
     local svc
@@ -289,5 +322,6 @@ case "${1:-}" in
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;
     stop)         stop_services ;;
+    debug)        debug_program "${2:-}" ;;
     *)            msg "unknown command $1"; exit 1 ;;
 esac

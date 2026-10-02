@@ -66,6 +66,15 @@ chmod +x "$TOOLS/appimagetool.AppImage"
 
 # --- topsolinux itself ------------------------------------------------------------------------------
 x86_64-w64-mingw32-gcc -O2 -s -o "$TOOLS/unstick.exe" "$TOP/installer/tools/unstick.c"
+# the managed stacks for the debug command (needs the .NET SDK; DOTNET=path/to/dotnet)
+DOTNET="${DOTNET:-$(command -v dotnet)}"
+if [ -n "$DOTNET" ]; then
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 "$DOTNET" build "$TOP/installer/tools/clrstack/clrstack.csproj" -c Release -nologo \
+        -v q -o "$TOOLS/clrstack" >/dev/null || exit 1
+    rm -f "$TOOLS/clrstack/"*.pdb
+else
+    echo "warning: no dotnet, the debug command will show native backtraces only" >&2
+fi
 cp "$TOP/installer/tools/exeicon.py" "$TOP/installer/tools/fetchmedia.py" "$TOP/installer/tools/userconfig.py" \
     "$TOP/installer/tools/desktop-dpi" "$TOOLS/"
 cp -r "$TOP/installer/data/reg" "$TOP/installer/data/sql" "$DIR/usr/share/topsolinux/"
