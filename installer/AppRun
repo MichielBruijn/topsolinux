@@ -382,17 +382,23 @@ step_sqlsetup()
     [ -f "$SQLDIR/Binn/sqlservr.exe" ] && return 0
     [ -f "$setup" ] || { say "SQL Server Express is not on the installation media"; return 1; }
     say "Installing SQL Server Express from the installation media"
-    (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
-        /UPDATEENABLED=False /IACCEPTSQLSERVERLICENSETERMS /SUPPRESSPRIVACYSTATEMENTNOTICE \
-        "/SQLSVCACCOUNT=NT AUTHORITY\NETWORK SERVICE" "/SQLSYSADMINACCOUNTS=BUILTIN\Administrators" \
-        /TCPENABLED=1 /NPENABLED=1 /SQLCOLLATION=SQL_Latin1_General_CP1_CI_AS /BROWSERSVCSTARTUPTYPE=Disabled >> "$LOG" 2>&1)
-    # the setup engine keeps running for a while after SETUP.EXE has returned
-    local i
-    for i in $(seq 240); do
-        pgrep -u "$(id -u)" -f -i 'ScenarioEngine|SQL Server Express.SETUP' >/dev/null || break
-        sleep 5
+    # its setup engine sometimes dies on an Xlib race in its progress window; a second run continues
+    local try i
+    for try in 1 2; do
+        [ $try = 2 ] && part 120 "Installing SQL Server Express again (its setup stopped)"
+        (cd "$(dirname "$setup")" && "$WINE" SETUP.EXE /QS /ENU /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLTOPSOLID \
+            /UPDATEENABLED=False /IACCEPTSQLSERVERLICENSETERMS /SUPPRESSPRIVACYSTATEMENTNOTICE \
+            "/SQLSVCACCOUNT=NT AUTHORITY\NETWORK SERVICE" "/SQLSYSADMINACCOUNTS=BUILTIN\Administrators" \
+            /TCPENABLED=1 /NPENABLED=1 /SQLCOLLATION=SQL_Latin1_General_CP1_CI_AS /BROWSERSVCSTARTUPTYPE=Disabled >> "$LOG" 2>&1)
+        # the setup engine keeps running for a while after SETUP.EXE has returned
+        for i in $(seq 240); do
+            pgrep -u "$(id -u)" -f -i 'ScenarioEngine|SQL Server Express.SETUP' >/dev/null || break
+            sleep 5
+        done
+        [ -f "$SQLDIR/Binn/sqlservr.exe" ] && return 0
     done
-    [ -f "$SQLDIR/Binn/sqlservr.exe" ] || { say "SQL Server Express could not be installed"; return 1; }
+    say "SQL Server Express could not be installed"
+    return 1
 }
 
 step_extras()
