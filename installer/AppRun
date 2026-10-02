@@ -38,7 +38,7 @@ NEED_GB=45
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
-APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY="" PART=""
+APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL=""
 
 # --- user interface -----------------------------------------------------------------------------
 
@@ -50,17 +50,23 @@ say()
     log "$*"
     echo "topsolinux: $*" >&2
     echo "$*" > "$DATA/.status"
-    [ -n "$PROGRESS" ] && echo "# $*" >&"$PROGFD"
+    progress_send "# $*"
 }
 
-# the progress bar pulsates; kept for the download, which reports a percentage
-percent() { :; }
+# a part of a step, with its own progress bar: SECONDS is how long it usually takes
+part()  # SECONDS TEXT
+{
+    say "$2"
+    progress_send "part $1"
+}
+
+# in a subshell: if the progress window has gone, the write kills only that
+progress_send() { [ -n "$PROGRESS" ] && ( echo "$*" >&"$PROGFD" ) 2>/dev/null; }
 
 fail()
 {
     log "ERROR: $*"
     echo "topsolinux: error: $*" >&2
-    ticker_stop
     [ -n "$PROGRESS" ] && { exec {PROGFD}>&-; wait "$PROGRESS" 2>/dev/null; PROGRESS=""; }
     # Wine's background services keep the AppImage in use; stop them so the installer can be replaced
     [ $UPDATE_APPIMAGE = 1 ] || "$WINESERVER" -k 2>/dev/null
@@ -80,15 +86,22 @@ question()  # TEXT OK-LABEL CANCEL-LABEL
     zenity --question --width=520 --title="$TITLE" --window-icon="$ICON" --ok-label="$2" --cancel-label="$3" --text="$1"
 }
 
-progress_start()
+progress_start()  # HEADING
 {
     [ $GUI = 1 ] || return
     # a descriptor chosen by bash: a fixed one could be the AppImage runtime's keepalive pipe, and closing
     # that unmounts the AppImage
-    exec {PROGFD}> >(zenity --progress --pulsate --auto-close --width=520 --title="$TITLE" --window-icon="$ICON" \
-                  --text="Preparing..." 2>/dev/null
-                  [ $? = 1 ] && cancel_requested)
+    if python3 "$TOOLS/progress.py" --check; then
+        exec {PROGFD}> >(python3 "$TOOLS/progress.py" --title "$TITLE" --heading "$1" --icon "$HERE/topsolinux.png" 2>/dev/null
+                         [ $? = 3 ] && cancel_requested)
+    else
+        # without GTK for Python: zenity's single pulsating bar, with the texts only
+        exec {PROGFD}> >(grep --line-buffered '^#' | zenity --progress --pulsate --auto-close --width=520 --title="$TITLE" \
+                             --window-icon="$ICON" --text="Preparing..." 2>/dev/null
+                         [ $? = 1 ] && cancel_requested)
+    fi
     PROGRESS=$!
+    [ -n "$LAST_TOTAL" ] && progress_send "$LAST_TOTAL"
 }
 
 # Cancel in the progress dialog (runs next to the installer): stop the installer and everything it runs
@@ -124,22 +137,44 @@ cancelled()
 }
 trap cancelled TERM
 
-ticker_stop() { :; }
-
 progress_stop()
 {
-    ticker_stop
     [ -n "$PROGRESS" ] || return
-    echo 100 >&"$PROGFD"
     exec {PROGFD}>&-
     wait "$PROGRESS" 2>/dev/null
     PROGRESS=""
+}
+
+# how long a step usually takes in seconds, for the progress bars (a fast computer takes about half)
+step_seconds()
+{
+    case "$1" in
+        download) echo 1500 ;; prefix) echo 60 ;; runtimes) echo 420 ;; setup) echo 300 ;; sqlsetup) echo 150 ;;
+        extras) echo 15 ;; sql) echo 360 ;; pdm) echo 90 ;; finish) echo 15 ;; spacemouse) echo 40 ;;
+        appimage) echo 900 ;; gearlever) echo 60 ;; *) echo 60 ;;
+    esac
+}
+
+# where a step of $PLAN starts and ends on the total progress bar: FROM TO SECONDS
+step_range()
+{
+    local s secs all=0 before=0 mine=0
+    for s in $PLAN; do
+        secs=$(step_seconds "$s")
+        [ "$s" = "$1" ] && mine=$secs
+        [ "$mine" = 0 ] && before=$((before + secs))
+        all=$((all + secs))
+    done
+    echo "$((before * 100 / all)) $(((before + mine) * 100 / all)) $mine"
 }
 
 # run a step only once, so that an interrupted installation continues where it stopped
 step()
 {
     grep -qx "$1" "$STATE" 2>/dev/null && return
+    LAST_TOTAL="total $(step_range "$1")"
+    progress_send "$LAST_TOTAL"
+    progress_send "part $(step_seconds "$1")"
     "step_$1" || fail "${LAST_SAY:-Step $1 failed.}"
     echo "$1" >> "$STATE"
 }
@@ -238,7 +273,8 @@ step_download()
     say "Downloading TopSolid from TopSolid's server"
     python3 "$TOOLS/fetchmedia.py" "$MEDIA" 2>>"$LOG" | while IFS= read -r line; do
         case "$line" in
-            "#"*) [ -n "$PROGRESS" ] && echo "$line" >&"$PROGFD" || echo "$line" >&2 ;;
+            "#"*) [ -n "$PROGRESS" ] && progress_send "$line" || echo "$line" >&2 ;;
+            [0-9]*) progress_send "$line" ;;
         esac
     done
     [ "${PIPESTATUS[0]}" = 0 ] || { say "Downloading TopSolid failed"; return 1; }
@@ -287,10 +323,10 @@ step_runtimes()
     local cache="${XDG_CACHE_HOME:-$HOME/.cache}/winetricks" ndp="$MEDIA/Setup/Redist/dotnet/NDP48-x86-x64-AllOS-ENU.exe"
     local sp1="$MEDIA/Setup/Redist/dotnet/dotnetfx35-SP1.exe"
     # .NET 4.0 is only needed for its mscoree.dll, which the .NET 4.8 installer expects Windows to have
-    say "Installing fonts, Visual C++ and .NET 4.0 (small downloads from Microsoft)"
+    part 150 "Installing fonts, Visual C++ and .NET 4.0"
     winetricks_run corefonts vcrun2019 dotnet40 || { say "Installing fonts, Visual C++ and .NET 4.0 failed"; return 1; }
 
-    say "Installing .NET Framework 4.8 from the installation media"
+    part 120 "Installing .NET Framework 4.8 from the installation media"
     if [ -f "$ndp" ]; then
         wine_run winecfg /v win7
         WINEDLLOVERRIDES="$WINEDLLOVERRIDES;fusion=b" wine_run "$(winpath "$ndp")" /q /norestart
@@ -303,7 +339,7 @@ step_runtimes()
         { say "Installing .NET Framework 4.8 failed"; return 1; }
 
     # SQL Server's CLR Types need .NET 3.5 before TopSolid's setup runs; winetricks takes the media's copy
-    say "Installing .NET Framework 3.5 from the installation media"
+    part 150 "Installing .NET Framework 3.5 from the installation media"
     if [ -f "$sp1" ] && [ "$(sha256sum < "$sp1" | cut -d' ' -f1)" = 0582515bde321e072f8673e829e175ed2e7a53e803127c50253af76528e66bc1 ]; then
         mkdir -p "$cache/dotnet35sp1"
         [ -f "$cache/dotnet35sp1/dotnetfx35.exe" ] || cp "$sp1" "$cache/dotnet35sp1/dotnetfx35.exe"
@@ -332,7 +368,7 @@ $NAME installs and sets up SQL Server itself afterwards."
         pgrep -u "$(id -u)" -f -i 'msiexec|SQL Server Express.SETUP|SETUP.EXE' >/dev/null || break
         sleep 5
     done
-    progress_start
+    progress_start "Installing TopSolid"
     find_version || { say "TopSolid's setup was closed before TopSolid was installed."; return 1; }
     say "TopSolid $VERSION installed"
 }
@@ -610,7 +646,9 @@ update_appimage()  # FILE
     need=$(( $(stat -c %s "$old") * 3 / 1024 / 1024 / 1024 + 2 ))
     free=$(( $(df -Pk "$DATA" | awk 'NR == 2 { print $4 }') / 1024 / 1024 ))
     [ "$free" -ge "$need" ] || fail "Updating the TopSolid AppImage needs $need GB of free disk space in $DATA, there is $free GB."
-    say "Updating the TopSolid AppImage (5-10 minutes)"
+    LAST_TOTAL="total 0 100 600"
+    progress_send "$LAST_TOTAL"
+    part 150 "Unpacking the TopSolid AppImage"
     rm -rf "$build"
     mkdir -p "$build"
     (cd "$build" && "$old" --appimage-extract >> "$LOG" 2>&1) || fail "Unpacking $old failed."
@@ -618,6 +656,7 @@ update_appimage()  # FILE
     appdir_runtime "$build/squashfs-root"
     # older ones may have an SVG icon, which file managers don't show
     [ -f "$build/squashfs-root/topsolid.png" ] || app_icon "$build/squashfs-root"
+    part 450 "Making the TopSolid AppImage with $NAME $TSL_VERSION"
     PART="$old.part"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
         --runtime-file "$TOOLS/runtime-x86_64" "$build/squashfs-root" "$old.part" >> "$LOG" 2>&1 ||
@@ -638,7 +677,7 @@ run_update_appimage()
     fi
     [ -f "$old" ] || fail "No TopSolid AppImage found; name it: $0 update-appimage FILE"
     echo "=== $(date '+%F %T') $TITLE, update $old" >> "$LOG"
-    progress_start
+    progress_start "Updating the TopSolid AppImage"
     update_appimage "$old"
     progress_stop
     info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${old/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it."
@@ -898,7 +937,11 @@ check_system
 [ $UPDATE_APPIMAGE = 1 ] && { run_update_appimage; exit 0; }
 echo "=== $(date '+%F %T') $TITLE, media $MEDIA, gearlever $USE_GEARLEVER, appimage $APPIMAGE_DIR" >> "$LOG"
 
-progress_start
+PLAN="prefix runtimes setup sqlsetup extras sql pdm finish appimage"
+[ $DOWNLOAD = 1 ] && PLAN="download $PLAN"
+[ "$SPACEMOUSE" = 1 ] && PLAN="${PLAN/appimage/spacemouse appimage}"
+[ $USE_GEARLEVER = 1 ] && PLAN="$PLAN gearlever"
+progress_start "Installing TopSolid"
 [ $DOWNLOAD = 1 ] && step download
 step prefix
 step runtimes

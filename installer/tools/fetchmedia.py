@@ -37,7 +37,7 @@ def sha1_of(path):
 
 
 def report(total):
-    print(f'{int(done_bytes * 100 / total)}\n# Downloading TopSolid: {done_bytes / 1e9:.1f} of {total / 1e9:.1f} GB',
+    print(f'{done_bytes * 100 / total:.1f}\n# Downloading TopSolid: {done_bytes / 1e9:.1f} of {total / 1e9:.1f} GB',
           flush=True)
 
 
