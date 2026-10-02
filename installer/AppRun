@@ -38,7 +38,7 @@ NEED_GB=45
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
-APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY=""
+APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY="" PART=""
 
 # --- user interface -----------------------------------------------------------------------------
 
@@ -85,10 +85,44 @@ progress_start()
     [ $GUI = 1 ] || return
     # a descriptor chosen by bash: a fixed one could be the AppImage runtime's keepalive pipe, and closing
     # that unmounts the AppImage
-    exec {PROGFD}> >(zenity --progress --pulsate --no-cancel --auto-close --width=520 --title="$TITLE" --window-icon="$ICON" \
-                  --text="Preparing..." 2>/dev/null)
+    exec {PROGFD}> >(zenity --progress --pulsate --auto-close --width=520 --title="$TITLE" --window-icon="$ICON" \
+                  --text="Preparing..." 2>/dev/null
+                  [ $? = 1 ] && cancel_requested)
     PROGRESS=$!
 }
+
+# Cancel in the progress dialog (runs next to the installer): stop the installer and everything it runs
+cancel_requested()
+{
+    kill -TERM $$
+    stop_children $$
+}
+
+stop_children()  # PID
+{
+    local p
+    for p in $(pgrep -P "$1"); do
+        [ "$p" = "$BASHPID" ] && continue
+        stop_children "$p"
+        kill -TERM "$p" 2>/dev/null
+    done
+}
+
+cancelled()
+{
+    trap - TERM
+    log "cancelled"
+    [ -n "$PROGRESS" ] && { exec {PROGFD}>&-; PROGRESS=""; }
+    rm -rf "$DATA/appimage-build" ${PART:+"$PART"}
+    if [ $UPDATE_APPIMAGE = 1 ]; then
+        info "Cancelled. The TopSolid AppImage was not changed."
+    else
+        "$WINESERVER" -k 2>/dev/null
+        info "<b>The installation was cancelled.</b>\n\nStart the installer again to continue where it stopped."
+    fi
+    exit 1
+}
+trap cancelled TERM
 
 ticker_stop() { :; }
 
@@ -455,7 +489,7 @@ step_finish()
 {
     find_version || return 1
     say "Finishing the installation"
-    python3 "$TOOLS/exeicon.py" "$TSBIN/TopSolid.exe" "$DATA/topsolid.png" >> "$LOG" 2>&1 || cp "$ICON" "$DATA/topsolid.svg"
+    python3 "$TOOLS/exeicon.py" "$TSBIN/TopSolid.exe" "$DATA/topsolid.png" >> "$LOG" 2>&1 || cp "$HERE/topsolinux.png" "$DATA/topsolid.png"
     # the server side of the local PDM was started for the first time in step_pdm; without this flag TopSolid does
     # that again on its first connection, stopping and restarting the service, which fails ("Unable to start service")
     local conf="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/AppData/Roaming/TOPSOLID/TopSolid/$VERSION/TopSolid/Kernel/SX"
@@ -550,6 +584,14 @@ appdir_runtime()
     cp "$HERE/topsolinux-run" "$dir/AppRun"
 }
 
+# TopSolid's own icon, or this installer's; as PNG, which file managers and Gear Lever show
+app_icon()  # APPDIR
+{
+    rm -f "$1/topsolid.svg" "$1/.DirIcon"
+    cp "$DATA/topsolid.png" "$1/topsolid.png" 2>/dev/null || cp "$HERE/topsolinux.png" "$1/topsolid.png"
+    ln -s topsolid.png "$1/.DirIcon"
+}
+
 # the TopSolid AppImage of this installation: where it was made, or where Gear Lever put it
 find_topsolid_appimage()
 {
@@ -574,11 +616,15 @@ update_appimage()  # FILE
     (cd "$build" && "$old" --appimage-extract >> "$LOG" 2>&1) || fail "Unpacking $old failed."
     [ -d "$build/squashfs-root/prefix" ] || { rm -rf "$build"; fail "$old is not a TopSolid AppImage made by $NAME."; }
     appdir_runtime "$build/squashfs-root"
+    # older ones may have an SVG icon, which file managers don't show
+    [ -f "$build/squashfs-root/topsolid.png" ] || app_icon "$build/squashfs-root"
+    PART="$old.part"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
         --runtime-file "$TOOLS/runtime-x86_64" "$build/squashfs-root" "$old.part" >> "$LOG" 2>&1 ||
         { rm -rf "$build" "$old.part"; fail "Making the AppImage failed."; }
     # a running TopSolid keeps the old file until it is closed
     mv "$old.part" "$old" || fail "$old could not be replaced."
+    PART=""
     rm -rf "$build"
     echo "$old" > "$DATA/appimage.path"
 }
@@ -611,8 +657,7 @@ step_appimage()
     stop_services
     rm -rf "$build"
     appdir_runtime "$dir"
-    if [ -f "$DATA/topsolid.png" ]; then cp "$DATA/topsolid.png" "$dir/topsolid.png"; ln -s topsolid.png "$dir/.DirIcon"
-    else cp "$ICON" "$dir/topsolid.svg"; ln -s topsolid.svg "$dir/.DirIcon"; fi
+    app_icon "$dir"
     desktop_file > "$dir/topsolid.desktop"
     cp -al "$WINEPREFIX" "$dir/prefix"
 
@@ -638,9 +683,11 @@ step_appimage()
         xargs -0 -r sed -i "s/$user/$placeholder/g"
 
     mkdir -p "$APPIMAGE_DIR"
+    PART="$out.part"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
         --runtime-file "$TOOLS/runtime-x86_64" "$dir" "$out.part" >> "$LOG" 2>&1 || { say "Making the AppImage failed"; return 1; }
     mv "$out.part" "$out"
+    PART=""
     rm -rf "$build"
     APPIMAGE_OUT="$out"
     echo "$out" > "$DATA/appimage.path"
