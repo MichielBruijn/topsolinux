@@ -1,2 +1,4 @@
 build/
 *.AppImage
+installer/tools/clrstack/obj/
+installer/tools/clrstack/bin/

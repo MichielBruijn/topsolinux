@@ -20,6 +20,13 @@ license server and a few dozen Wine bugs.
 
 Both with TopSolid 7.20 (media 7.20.400.0 RTM).
 
+Briefly tested, with care:
+
+- **WSL2 on Windows** (WSLg, over Remote Desktop, without GPU acceleration): a TopSolid AppImage copied from
+  the laptop above starts and works with a company's **PDM server and license server on Windows**. Known so
+  far: the start can take a minute or two longer, TopSolid hung once (with a TopSolid AppImage from before the
+  watchdog of 1.2; cause not found), and a SpaceMouse needs `usbipd-win` to reach WSL.
+
 ## What you need
 
 - A 64-bit Linux with glibc 2.38 or newer: Ubuntu 24.04 or newer, Debian 13, Fedora 39 or newer, ...
@@ -31,8 +38,8 @@ Both with TopSolid 7.20 (media 7.20.400.0 RTM).
 
 ## Installing
 
-1. Download `TopSoLinux-Installer-1.3-x86_64.AppImage` from the [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.3-x86_64.AppImage`) and start it.
+1. Download `TopSoLinux-Installer-1.4-x86_64.AppImage` from the [releases](../../releases).
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.4-x86_64.AppImage`) and start it.
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
@@ -51,9 +58,9 @@ asks where to save it.
 Without a desktop, or to script it:
 
 ```
-./TopSoLinux-Installer-1.3-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+./TopSoLinux-Installer-1.4-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
     [--replace] [--gearlever | --appimage-dir ~/Applications] [--spacemouse]
-./TopSoLinux-Installer-1.3-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.4-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again. For an existing
@@ -97,6 +104,7 @@ Right-click TopSolid's icon in the app menu for TopSolid'Update, the license too
 | `scale 150` | text and icons at 150% (100 = normal), kept until changed |
 | `scale auto` | follow the desktop's scale again (the default) |
 | `stop` | stop SQL Server, the PDM and the license server |
+| `debug` | TopSolid hangs: write its stacks to `~/topsolid-debug-….txt` for a bug report (stops nothing) |
 | `winecfg`, `regedit`, `shell` | Wine tools, for troubleshooting |
 
 TopSolid follows the scale of your desktop by itself, unless you set one with `scale` or in Wine's settings.
@@ -166,7 +174,8 @@ wine/build-wine.sh build/wine-dist     # patched Wine (needs Wine's build depend
 ```
 
 `build.sh` also needs `x86_64-w64-mingw32-gcc`, `ntlm_auth` (package `winbind`), `cabextract`,
-`winetricks` and `curl`, and bundles `ntlm_auth`, `cabextract` and `winetricks`.
+`winetricks` and `curl`, and bundles `ntlm_auth`, `cabextract` and `winetricks`. With the .NET SDK
+(`dotnet`, or `DOTNET=path/to/dotnet`) it also builds the tool that reads the managed stacks for `debug`.
 
 ## Guide
 

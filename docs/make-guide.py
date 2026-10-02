@@ -39,7 +39,7 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#777777'))
-    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.3 · unofficial, not affiliated with TOPSOLID SAS")
+    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.4 · unofficial, not affiliated with TOPSOLID SAS")
     canvas.drawRightString(190 * mm, 12 * mm, f'page {doc.page}')
     canvas.restoreState()
 
@@ -62,7 +62,7 @@ story = [
             'automatically.'),
 
     Paragraph('2. Installing', h2),
-    bullets('Make ' + c('TopSoLinux-Installer-1.3-x86_64.AppImage') + ' executable (file properties, or '
+    bullets('Make ' + c('TopSoLinux-Installer-1.4-x86_64.AppImage') + ' executable (file properties, or '
             + c('chmod +x') + ') and start it.',
             'Choose the installation media (found automatically in Downloads, your home folder or a USB drive), '
             'another folder, or the download from TopSolid\'s server.',
@@ -109,6 +109,7 @@ table = Table([[Paragraph(c(a), cell), Paragraph(b, cell)] for a, b in [
     ('update', 'start TopSolid\'Update'),
     ('license FILE', 'install a license file'),
     ('stop', 'stop SQL Server, the PDM and the license server'),
+    ('debug', 'TopSolid hangs: write its stacks to a file in your home folder, for a bug report'),
 ]], colWidths=[40 * mm, 130 * mm])
 table.setStyle(TableStyle([
     ('FONT', (0, 0), (-1, -1), 'Helvetica', 9),
