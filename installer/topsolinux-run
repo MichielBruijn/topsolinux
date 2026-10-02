@@ -26,6 +26,10 @@ export PATH="$HERE/usr/bin:$PATH"
 export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 # no Wine menu or desktop entries: they would point at a prefix without this Wine
 export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+# Wine draws the arrow and other standard cursors from the X11 cursor theme. Without XCURSOR_SIZE,
+# libXcursor sizes them at 1/48 of the screen height, which under WSLg makes them huge
+[ -z "${XCURSOR_SIZE:-}" ] && [ -x "$HERE/usr/lib/topsolinux/desktop-dpi" ] &&
+    export XCURSOR_SIZE=$(( 24 * $("$HERE/usr/lib/topsolinux/desktop-dpi") / 96 ))
 # no drive letters for USB sticks and SD cards: Wine follows udisks on the system bus, and a card that
 # drops out made TopSolid hang. They stay reachable through Z:
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/dev/null/no-system-bus"
