@@ -73,7 +73,7 @@ if [ -n "$DOTNET" ]; then
         -v q -o "$TOOLS/clrstack" >/dev/null || exit 1
     rm -f "$TOOLS/clrstack/"*.pdb
 else
-    echo "warning: no dotnet, the debug command will show native backtraces only" >&2
+    echo "warning: no dotnet, the debug command will show only the end of the log" >&2
 fi
 cp "$TOP/installer/tools/exeicon.py" "$TOP/installer/tools/fetchmedia.py" "$TOP/installer/tools/userconfig.py" \
     "$TOP/installer/tools/progress.py" "$TOP/installer/tools/desktop-dpi" "$TOOLS/"
