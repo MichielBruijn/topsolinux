@@ -7,7 +7,7 @@
  * pumps messages until the queue is empty (Application.DoEventsAndLockUI), which never happens with
  * an endless WM_PAINT, so the dialog never finishes loading and TopSolid hangs.
  *
- * This watchdog runs next to TopSolid. When a combo box keeps an update region for a few seconds
+ * This watchdog runs next to TopSolid. When a combo box keeps an update region for about a second
  * while its thread still answers messages (so TopSolid is pumping, not computing), it validates
  * the pending windows of that thread. That ends the loop; the next repaint draws them normally.
  *
@@ -20,10 +20,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define POLL_MS     1000
-#define STUCK_POLLS 5
+#define POLL_MS     250
+#define STUCK_POLLS 4       /* about a second: a thread that pumps messages paints within milliseconds */
 #define MAX_SEEN    256
-#define SERVICE_POLLS 10
+#define SERVICE_POLLS 40    /* the license server: every 10 seconds */
 #define LICENSE_SERVICE L"Sentinel RMS License Manager"
 
 struct seen { HWND hwnd; int polls; };
