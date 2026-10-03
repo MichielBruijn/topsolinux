@@ -53,9 +53,9 @@ Briefly tested, with care:
    it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
-The result is a TopSolid AppImage (`TopSolid-7.20-x86_64.AppImage`). With Gear Lever it is in your app menu
-(Gear Lever renames it to `topsolid_7.20.appimage` and moves it to its own folder); without, the installer
-asks where to save it.
+The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.3-x86_64.AppImage`; its name shows the
+TopSo'Linux version that made it). With Gear Lever it is in your app menu (Gear Lever moves it to its own
+folder as `topsolid_7.20_topsolinux-1.6.3.appimage`); without, the installer asks where to save it.
 
 Without a desktop, or to script it:
 
@@ -71,7 +71,7 @@ to use another folder).
 
 ### The TopSolid AppImage
 
-`TopSolid-7.20-x86_64.AppImage` is a complete, self-contained TopSolid. To use TopSolid on another computer,
+The TopSolid AppImage is a complete, self-contained TopSolid. To use TopSolid on another computer,
 copy the AppImage there and start it: the first start sets TopSolid up in `~/.local/share/topsolinux` (a few
 minutes). Each computer needs its own license.
 
@@ -80,7 +80,8 @@ Express and Microsoft's runtimes.
 
 **Updating TopSo'Linux:** start a newer installer and choose *Update the AppImage* (or run
 `./TopSoLinux-Installer-…AppImage update-appimage [FILE]`). The TopSolid AppImage gets the newer Wine and
-starter; your installation and projects stay, and so does the installation inside the AppImage.
+starter, and the new TopSo'Linux version in its name; your installation and projects stay, and so does the
+installation inside the AppImage.
 
 TopSolid's service packs are installed with TopSolid'Update (right-click the icon). They update the
 installation in `~/.local/share/topsolinux`, not the AppImage file, so Gear Lever's update button does not
