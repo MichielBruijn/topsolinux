@@ -7,8 +7,12 @@
  * pumps messages until the queue is empty (Application.DoEventsAndLockUI), which never happens with
  * an endless WM_PAINT, so the dialog never finishes loading and TopSolid hangs.
  *
+ * Since Wine patch 51 the command dialogs no longer do this: their combo boxes sit in a
+ * WS_EX_COMPOSITED panel, which Wine now paints in one pass as Windows does. The watchdog stays
+ * for the combo boxes outside such a panel, like the PDM "Connection" dialog.
+ *
  * This watchdog runs next to TopSolid. When a combo box keeps an update region for about a second
- * while its thread still answers messages (so TopSolid is pumping, not computing), it validates
+ * while its thread answers a message at once (so TopSolid is pumping, not computing), it validates
  * the pending windows of that thread. That ends the loop; the next repaint draws them normally.
  *
  * It also restarts the Sentinel license server when it stops while TopSolid runs (it crashed once
@@ -22,6 +26,7 @@
 
 #define POLL_MS     250
 #define STUCK_POLLS 4       /* about a second: a thread that pumps messages paints within milliseconds */
+#define ANSWER_MS   50      /* a thread in the loop answers WM_NULL in under a millisecond */
 #define MAX_SEEN    256
 #define SERVICE_POLLS 40    /* the license server: every 10 seconds */
 #define LICENSE_SERVICE L"Sentinel RMS License Manager"
@@ -116,8 +121,9 @@ int main(void)
         nseen = nnow;
         if (!stuck) continue;
 
-        /* a thread that doesn't answer is busy computing; its windows are painted when it's done */
-        if (!SendMessageTimeoutW(GetAncestor(stuck, GA_ROOT), WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 500, &res))
+        /* a thread in the loop answers at once; one that is computing (loading a command the first time,
+         * measured 220-260 ms) paints when it's done */
+        if (!SendMessageTimeoutW(GetAncestor(stuck, GA_ROOT), WM_NULL, 0, 0, SMTO_ABORTIFHUNG, ANSWER_MS, &res))
             continue;
         tid = GetWindowThreadProcessId(stuck, NULL);
         validated = 0;
