@@ -47,7 +47,8 @@ install_prefix()
     [ -d "$HERE/prefix" ] || { msg "no TopSolid installation in $WINEPREFIX"; exit 1; }
     msg "first start, copying the TopSolid installation to $WINEPREFIX (this takes a few minutes)"
     mkdir -p "$WINEPREFIX" || exit 1
-    cp -a "$HERE/prefix/." "$WINEPREFIX/" || { msg "copy failed"; exit 1; }
+    # --remove-destination: a copy that was interrupted before left read-only files cp can't overwrite
+    cp -a --remove-destination "$HERE/prefix/." "$WINEPREFIX/" || { msg "copy failed"; exit 1; }
 
     # the prefix was prepared for a placeholder user name
     local user="${USER:-$(id -un)}"
