@@ -1,0 +1,45 @@
+From f95d2da00d89368abc5f59a23481082fb84686da Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 3 Oct 2026 18:54:34 +0200
+Subject: [PATCH 50/51] user32, comctl32: Keep a combo box hidden until
+ CreateWindowEx shows it.
+
+COMBO_NCCreate wrote the style from CREATESTRUCT back with SetWindowLong, which includes
+WS_VISIBLE; the combo box then became visible during WM_NCCREATE, before its children and
+size existed. Windows shows it only after WM_CREATE. Use the current style instead.
+---
+ dlls/comctl32_v6/combo.c | 3 ++-
+ dlls/user32/combo.c      | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/comctl32_v6/combo.c b/dlls/comctl32_v6/combo.c
+index a8ecf9f..8b3065e 100644
+--- a/dlls/comctl32_v6/combo.c
++++ b/dlls/comctl32_v6/combo.c
+@@ -130,7 +130,8 @@ static LRESULT COMBO_NCCreate(HWND hwnd, LONG style)
+        /* some braindead apps do try to use scrollbar/border flags */
+ 
+ 	lphc->dwStyle = style & ~(WS_BORDER | WS_HSCROLL | WS_VSCROLL);
+-        SetWindowLongW( hwnd, GWL_STYLE, style & ~(WS_BORDER | WS_HSCROLL | WS_VSCROLL) );
++        /* the current style, not the one asked for: CreateWindowEx shows the window only after WM_CREATE */
++        SetWindowLongW( hwnd, GWL_STYLE, GetWindowLongW( hwnd, GWL_STYLE ) & ~(WS_BORDER | WS_HSCROLL | WS_VSCROLL) );
+ 
+ 	/*
+ 	 * We also have to remove the client edge style to make sure
+diff --git a/dlls/user32/combo.c b/dlls/user32/combo.c
+index cb92734..8ab6f7c 100644
+--- a/dlls/user32/combo.c
++++ b/dlls/user32/combo.c
+@@ -131,7 +131,8 @@ static LRESULT COMBO_NCCreate(HWND hwnd, LONG style)
+        /* some braindead apps do try to use scrollbar/border flags */
+ 
+ 	lphc->dwStyle = style & ~(WS_BORDER | WS_HSCROLL | WS_VSCROLL);
+-        SetWindowLongW( hwnd, GWL_STYLE, style & ~(WS_BORDER | WS_HSCROLL | WS_VSCROLL) );
++        /* the current style, not the one asked for: CreateWindowEx shows the window only after WM_CREATE */
++        SetWindowLongW( hwnd, GWL_STYLE, GetWindowLongW( hwnd, GWL_STYLE ) & ~(WS_BORDER | WS_HSCROLL | WS_VSCROLL) );
+ 
+ 	/*
+ 	 * We also have to remove the client edge style to make sure
+-- 
+2.53.0
+

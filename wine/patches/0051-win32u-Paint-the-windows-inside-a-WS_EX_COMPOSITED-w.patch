@@ -1,0 +1,53 @@
+From 3d7ff1fb925fdab015f2546ca2cca4617568c65e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 3 Oct 2026 18:54:34 +0200
+Subject: [PATCH 51/51] win32u: Paint the windows inside a WS_EX_COMPOSITED
+ window in one pass.
+
+On Windows the children of a WS_EX_COMPOSITED window never get WM_PAINT from the queue: it is
+sent to them from within PeekMessage, and they are validated afterwards whether or not they
+painted. Wine returned it as a queued message, so a window procedure that doesn't validate
+(TopSolid's combo boxes while a command dialog loads) got WM_PAINT again and again, and the
+dialog only appeared after a watchdog stepped in. Send the message and validate the window.
+---
+ dlls/win32u/message.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 8c9a2aa..d1c2696 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2946,6 +2946,15 @@ static BOOL check_queue_bits( UINT wake_mask, UINT changed_mask, UINT signal_bit
+     return skip;
+ }
+ 
++static BOOL has_composited_ancestor( HWND hwnd )
++{
++    HWND desktop = get_desktop_window();
++
++    while ((hwnd = NtUserGetAncestor( hwnd, GA_PARENT )) && hwnd != desktop)
++        if (get_window_long( hwnd, GWL_EXSTYLE ) & WS_EX_COMPOSITED) return TRUE;
++    return FALSE;
++}
++
+ /***********************************************************************
+  *           peek_message
+  *
+@@ -3232,6 +3241,14 @@ static int peek_message( MSG *msg, const struct peek_message_filter *filter )
+             {
+                 if (!(flags & PM_NOYIELD) && idle_event) NtSetEvent( idle_event, NULL );
+             }
++            /* Windows paints the windows inside a WS_EX_COMPOSITED window in one pass: they get WM_PAINT
++             * sent, never from the queue, and are validated after it whether or not they painted */
++            if (info.msg.message == WM_PAINT && info.msg.hwnd && has_composited_ancestor( info.msg.hwnd ))
++            {
++                send_message( info.msg.hwnd, WM_PAINT, 0, 0 );
++                NtUserRedrawWindow( info.msg.hwnd, NULL, 0, RDW_VALIDATE | RDW_FRAME | RDW_NOINTERNALPAINT | RDW_NOCHILDREN );
++                continue;
++            }
+             *msg = info.msg;
+             msg->pt = point_phys_to_win_dpi( info.msg.hwnd, info.msg.pt );
+             thread_info->message_pos   = MAKELONG( msg->pt.x, msg->pt.y );
+-- 
+2.53.0
+

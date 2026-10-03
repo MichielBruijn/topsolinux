@@ -40,8 +40,8 @@ Briefly tested, with care:
 
 ## Installing
 
-1. Download `TopSoLinux-Installer-1.6.2-x86_64.AppImage` from the [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.2-x86_64.AppImage`) and start it.
+1. Download `TopSoLinux-Installer-1.6.3-x86_64.AppImage` from the [releases](../../releases).
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.3-x86_64.AppImage`) and start it.
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
@@ -60,9 +60,9 @@ asks where to save it.
 Without a desktop, or to script it:
 
 ```
-./TopSoLinux-Installer-1.6.2-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+./TopSoLinux-Installer-1.6.3-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
     [--replace] [--gearlever | --appimage-dir ~/Applications] [--spacemouse]
-./TopSoLinux-Installer-1.6.2-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.6.3-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again. For an existing
@@ -163,8 +163,8 @@ While TopSolid runs, a small watchdog keeps its dialogs from hanging in an endle
 such as the PDM "Connection" dialog of the first start or a command's dialog (`installer/tools/unstick.c`
 explains why).
 
-Wine needed 49 changes for TopSolid, from COM security, WMI and NTLM authentication for SQL Server to
-certificate handling, services, tooltips, a thread leak and a SpaceMouse bridge. They are in
+Wine needed 51 changes for TopSolid, from COM security, WMI and NTLM authentication for SQL Server to
+certificate handling, services, painting, tooltips, a thread leak and a SpaceMouse bridge. They are in
 `wine/patches`, on top of the upstream commit in `wine/UPSTREAM_COMMIT`. They are not submitted to Wine:
 Wine does not accept AI-generated code (see below).
 
