@@ -687,6 +687,11 @@ retarget_desktop_files()  # OLD NEW
     n="$(printf %s "$2" | sed 's/[\/&]/\\&/g')"
     grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop |
         while IFS= read -r -d '' f; do sed -i "s/$o/$n/g" "$f"; done
+    # Gear Lever keeps its settings per app under the md5 of the path
+    f="$HOME/.var/app/$GEARLEVER/config/gearlever.conf"
+    [ -f "$f" ] || return 0
+    sed -i -e "s/^\[app\.$(printf %s "$1" | md5sum | cut -c1-32)/[app.$(printf %s "$2" | md5sum | cut -c1-32)/" \
+        -e "s/^file_path = $o\$/file_path = $n/" "$f"
 }
 
 # the TopSolid AppImage of this installation: where it was made, or where Gear Lever put it
