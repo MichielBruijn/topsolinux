@@ -44,7 +44,7 @@ def footer(canvas, doc):
     canvas.restoreState()
 
 
-APP = 'TopSolid-7.20-x86_64.AppImage'
+APP = 'TopSolid-7.20-TopSoLinux-1.6.3-x86_64.AppImage'
 story = [
     Paragraph(TITLE, h1),
     Paragraph('Short guide to installing and using TopSolid 7.20 with its local PDM on Linux', sub),
@@ -74,7 +74,7 @@ story = [
             'Wait: the whole installation takes 30 to 60 minutes. If it is interrupted, start the installer again '
             'and it continues where it stopped.'),
     Paragraph('Everything is installed in ' + c('~/.local/share/topsolinux') + '. The result is ' + c(APP) + ', a '
-              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20.appimage') + ').', body),
+              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.3.appimage') + ').', body),
 
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '

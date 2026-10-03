@@ -38,7 +38,7 @@ NEED_GB=45
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
-APPIMAGE_OUT="" INTEGRATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL="" LAST_HEADING="" PROGRESS_SINCE=""
+APPIMAGE_OUT="" INTEGRATED="" UPDATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL="" LAST_HEADING="" PROGRESS_SINCE=""
 
 # --- user interface -----------------------------------------------------------------------------
 
@@ -666,6 +666,29 @@ app_icon()  # APPDIR
     ln -s topsolid.png "$1/.DirIcon"
 }
 
+# the name of a TopSolid AppImage shows the TopSo'Linux version that made it
+versioned_name()  # PATH
+{
+    local dir="${1%/*}" base="${1##*/}"
+    base="$(printf %s "$base" | sed -E 's/[-_]topsolinux[-_]([0-9]+(\.[0-9]+)*|dev)//I')"
+    case "$base" in
+        *-x86_64.*) base="${base/-x86_64./-TopSoLinux-$TSL_VERSION-x86_64.}" ;;
+        *.*) base="${base%.*}_topsolinux-$TSL_VERSION.${base##*.}" ;;
+        *) base="${base}_topsolinux-$TSL_VERSION" ;;
+    esac
+    echo "$dir/$base"
+}
+
+# the app menu entries that start OLD start NEW
+retarget_desktop_files()  # OLD NEW
+{
+    local f o n
+    o="$(printf %s "$1" | sed 's/[][\/.*^$&]/\\&/g')"
+    n="$(printf %s "$2" | sed 's/[\/&]/\\&/g')"
+    grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop |
+        while IFS= read -r -d '' f; do sed -i "s/$o/$n/g" "$f"; done
+}
+
 # the TopSolid AppImage of this installation: where it was made, or where Gear Lever put it
 find_topsolid_appimage()
 {
@@ -680,7 +703,8 @@ find_topsolid_appimage()
 # installation in it stays as it was made: nothing of this computer's TopSolid or projects gets into it.
 update_appimage()  # FILE
 {
-    local old="$1" build="$DATA/appimage-build" need free
+    local old="$1" new build="$DATA/appimage-build" need free
+    new="$(versioned_name "$old")"
     need=$(( $(stat -c %s "$old") * 3 / 1024 / 1024 / 1024 + 2 ))
     free=$(( $(df -Pk "$DATA" | awk 'NR == 2 { print $4 }') / 1024 / 1024 ))
     [ "$free" -ge "$need" ] || fail "Updating the TopSolid AppImage needs $need GB of free disk space in $DATA, there is $free GB."
@@ -695,15 +719,20 @@ update_appimage()  # FILE
     # older ones may have an SVG icon, which file managers don't show
     [ -f "$build/squashfs-root/topsolid.png" ] || app_icon "$build/squashfs-root"
     part 180 "Making the TopSolid AppImage with $NAME $TSL_VERSION"
-    PART="$old.part"
+    PART="$new.part"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
-        --runtime-file "$TOOLS/runtime-x86_64" "$build/squashfs-root" "$old.part" >> "$LOG" 2>&1 ||
-        { rm -rf "$build" "$old.part"; fail "Making the AppImage failed."; }
+        --runtime-file "$TOOLS/runtime-x86_64" "$build/squashfs-root" "$new.part" >> "$LOG" 2>&1 ||
+        { rm -rf "$build" "$new.part"; fail "Making the AppImage failed."; }
     # a running TopSolid keeps the old file until it is closed
-    mv "$old.part" "$old" || fail "$old could not be replaced."
+    mv "$new.part" "$new" || fail "$new could not be written."
     PART=""
     rm -rf "$build"
-    echo "$old" > "$DATA/appimage.path"
+    if [ "$new" != "$old" ]; then
+        retarget_desktop_files "$old" "$new"
+        rm -f "$old"
+    fi
+    echo "$new" > "$DATA/appimage.path"
+    UPDATED="$new"
 }
 
 run_update_appimage()
@@ -718,7 +747,7 @@ run_update_appimage()
     progress_start "Updating the TopSolid AppImage"
     update_appimage "$old"
     progress_stop
-    info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${old/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it."
+    info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${UPDATED/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it."
 }
 
 # A self-contained AppImage of this installation, e.g. for colleagues with the same license.
@@ -729,7 +758,7 @@ step_appimage()
     local build="$DATA/appimage-build" user placeholder=__wineuser__ out
     local dir="$build/AppDir"
     find_version || return 1
-    out="$APPIMAGE_DIR/TopSolid-$VERSION-x86_64.AppImage"
+    out="$(versioned_name "$APPIMAGE_DIR/TopSolid-$VERSION-x86_64.AppImage")"
     say "Making the TopSolid AppImage (10-20 minutes)"
     stop_services
     rm -rf "$build"
@@ -793,6 +822,15 @@ step_gearlever()
         out="$(flatpak run "$GEARLEVER" --integrate "$APPIMAGE_OUT" -y 2>&1)"
         echo "$out" >> "$LOG"
         INTEGRATED="$(echo "$out" | sed -n 's/^\(\/.*\) was integrated successfully.*/\1/p' | tail -1)"
+        # Gear Lever names it after the app (topsolid_7.20.appimage); the TopSo'Linux version goes back in
+        if [ -f "$INTEGRATED" ]; then
+            out="$(versioned_name "$INTEGRATED")"
+            if [ "$out" = "$INTEGRATED" ] || mv "$INTEGRATED" "$out"; then
+                retarget_desktop_files "$INTEGRATED" "$out"
+                APPIMAGE_OUT="$out"
+                echo "$out" > "$DATA/appimage.path"
+            fi
+        fi
     fi
     if [ -z "$INTEGRATED" ]; then
         NOTES="$NOTES\n• Gear Lever could not add TopSolid to the app menu; open the AppImage with Gear Lever yourself."
