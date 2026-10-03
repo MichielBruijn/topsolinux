@@ -1,0 +1,100 @@
+From d3bdf04d2ed847e7b26b6317268d55be9e65c36a Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 3 Oct 2026 12:37:25 +0200
+Subject: [PATCH] wbemprox: Report IAgileObject for the WMI objects.
+
+.NET's System.Management creates the WMI objects on its own MTA thread. Used from an STA
+thread, the runtime first asks whether an object is agile; if not, it marshals it, and
+there are no proxies for the wbemcli interfaces, so ExecQuery failed with E_NOINTERFACE
+(InvalidCastException "Specified cast is not valid"). TopSolid shows that as an
+application error at startup when the computer has no wired network adapter, and SQL
+Server's setup fails on it while collecting the processors.
+
+The objects are in-process and their state is guarded where it is shared, so the same
+pointer can be used from any apartment.
+---
+ dlls/wbemprox/class.c       | 6 ++++--
+ dlls/wbemprox/qualifier.c   | 3 ++-
+ dlls/wbemprox/services.c    | 6 ++++--
+ dlls/wbemprox/wbemlocator.c | 3 ++-
+ 4 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/wbemprox/class.c b/dlls/wbemprox/class.c
+index b1e5794..009cfed 100644
+--- a/dlls/wbemprox/class.c
++++ b/dlls/wbemprox/class.c
+@@ -76,7 +76,8 @@ static HRESULT WINAPI enum_class_object_QueryInterface(
+     TRACE("%p, %s, %p\n", ec, debugstr_guid( riid ), ppvObject );
+ 
+     if ( IsEqualGUID( riid, &IID_IEnumWbemClassObject ) ||
+-         IsEqualGUID( riid, &IID_IUnknown ) )
++         IsEqualGUID( riid, &IID_IUnknown ) ||
++         IsEqualGUID( riid, &IID_IAgileObject ) )
+     {
+         *ppvObject = &ec->IEnumWbemClassObject_iface;
+     }
+@@ -323,7 +324,8 @@ static HRESULT WINAPI class_object_QueryInterface(
+     TRACE("%p, %s, %p\n", co, debugstr_guid( riid ), ppvObject );
+ 
+     if ( IsEqualGUID( riid, &IID_IWbemClassObject ) ||
+-         IsEqualGUID( riid, &IID_IUnknown ) )
++         IsEqualGUID( riid, &IID_IUnknown ) ||
++         IsEqualGUID( riid, &IID_IAgileObject ) )
+     {
+         *ppvObject = &co->IWbemClassObject_iface;
+     }
+diff --git a/dlls/wbemprox/qualifier.c b/dlls/wbemprox/qualifier.c
+index 167a814..2ca5aaf 100644
+--- a/dlls/wbemprox/qualifier.c
++++ b/dlls/wbemprox/qualifier.c
+@@ -77,7 +77,8 @@ static HRESULT WINAPI qualifier_set_QueryInterface(
+     TRACE("%p, %s, %p\n", set, debugstr_guid( riid ), ppvObject );
+ 
+     if ( IsEqualGUID( riid, &IID_IWbemQualifierSet ) ||
+-         IsEqualGUID( riid, &IID_IUnknown ) )
++         IsEqualGUID( riid, &IID_IUnknown ) ||
++         IsEqualGUID( riid, &IID_IAgileObject ) )
+     {
+         *ppvObject = &set->IWbemQualifierSet_iface;
+     }
+diff --git a/dlls/wbemprox/services.c b/dlls/wbemprox/services.c
+index 7ca8979..e7be248 100644
+--- a/dlls/wbemprox/services.c
++++ b/dlls/wbemprox/services.c
+@@ -262,7 +262,8 @@ static HRESULT WINAPI wbem_services_QueryInterface(
+     TRACE("%p %s %p\n", ws, debugstr_guid( riid ), ppvObject );
+ 
+     if ( IsEqualGUID( riid, &IID_IWbemServices ) ||
+-         IsEqualGUID( riid, &IID_IUnknown ) )
++         IsEqualGUID( riid, &IID_IUnknown ) ||
++         IsEqualGUID( riid, &IID_IAgileObject ) )
+     {
+         *ppvObject = &ws->IWbemServices_iface;
+     }
+@@ -1044,7 +1045,8 @@ static HRESULT WINAPI wbem_context_QueryInterface(
+     TRACE("%p, %s, %p\n", iface, debugstr_guid( riid ), obj );
+ 
+     if ( IsEqualGUID( riid, &IID_IWbemContext ) ||
+-         IsEqualGUID( riid, &IID_IUnknown ) )
++         IsEqualGUID( riid, &IID_IUnknown ) ||
++         IsEqualGUID( riid, &IID_IAgileObject ) )
+     {
+         *obj = iface;
+     }
+diff --git a/dlls/wbemprox/wbemlocator.c b/dlls/wbemprox/wbemlocator.c
+index 6e5bdde..00ec8b5 100644
+--- a/dlls/wbemprox/wbemlocator.c
++++ b/dlls/wbemprox/wbemlocator.c
+@@ -71,7 +71,8 @@ static HRESULT WINAPI wbem_locator_QueryInterface(
+     TRACE("%p %s %p\n", This, debugstr_guid( riid ), ppvObject );
+ 
+     if ( IsEqualGUID( riid, &IID_IWbemLocator ) ||
+-         IsEqualGUID( riid, &IID_IUnknown ) )
++         IsEqualGUID( riid, &IID_IUnknown ) ||
++         IsEqualGUID( riid, &IID_IAgileObject ) )
+     {
+         *ppvObject = iface;
+     }
+-- 
+2.43.0
+
