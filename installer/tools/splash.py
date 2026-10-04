@@ -3,7 +3,6 @@
 local PDM are up, which can take a while.
 
 usage: splash.py --status FILE --icon PNG --title TEXT --subtitle TEXT
-       splash.py --check                           exit 0 if GTK 3 with cairo is available
 
 FILE holds commands, one per line, and is read again when it changes (a file, not a pipe: the Wine
 processes started meanwhile would keep a pipe open):
@@ -11,36 +10,29 @@ processes started meanwhile would keep a pipe open):
   watch CLASS     close as soon as an X11 window of this class (e.g. topsolid.exe) shows something
 Removing FILE (topsolinux-run does that when the program has ended) or a click closes it too. There
 is no time limit: a slow computer takes longer, not differently.
+
+Needs only python3-gi with GTK 3 (no cairo bindings, Ubuntu doesn't install those by default); without
+GTK 3 it shows a zenity progress window instead. The window watching uses libX11 through ctypes.
 """
 import ctypes
 import ctypes.util
-import math
 import os
+import subprocess
 import sys
 import time
-
-if '--check' in sys.argv:
-    try:
-        import gi
-        gi.require_version('Gtk', '3.0')
-        gi.require_foreign('cairo')
-        from gi.repository import Gtk  # noqa: F401
-    except Exception:
-        sys.exit(1)
-    sys.exit(0)
 
 # an X11 window, like Wine's, so it can be placed in the middle of the screen
 os.environ.setdefault('GDK_BACKEND', 'x11')
 
-import gi  # noqa: E402
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gdk', '3.0')
-gi.require_version('GdkPixbuf', '2.0')
-gi.require_foreign('cairo')
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from progress import Rod, TURN_SECONDS  # noqa: E402
+try:
+    import gi
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('Gdk', '3.0')
+    gi.require_version('GdkPixbuf', '2.0')
+    from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+except (ImportError, ValueError):
+    # ValueError: no GTK 3 typelib
+    Gtk = None
 
 CSS = b'''
 .splash-window { background: transparent; }
@@ -49,6 +41,8 @@ CSS = b'''
 .splash .title { font-size: 26pt; font-weight: bold; }
 .splash .subtitle { color: #a9b6c6; }
 .splash .status { color: #c9d3df; }
+.splash progressbar trough { min-height: 6px; border-radius: 3px; background: #2f3a49; border: none; }
+.splash progressbar progress { min-height: 6px; border-radius: 3px; background: #f4a623; border: none; }
 '''
 
 
@@ -155,9 +149,47 @@ class Windows:
         return found
 
 
-class Splash(Gtk.Window):
-    def __init__(self, status, icon, title, subtitle):
+class Watcher:
+    """The status file and the window to wait for, for the GTK and the zenity splash."""
+
+    def __init__(self, status):
+        self.status_file, self.seen, self.text, self.watch_class, self.windows = status, None, '', None, None
+
+    def read(self):
+        """Take text and watch_class from the file; False when it is gone."""
+        try:
+            st = os.stat(self.status_file)
+            if (st.st_mtime_ns, st.st_size) != self.seen:
+                self.seen = (st.st_mtime_ns, st.st_size)
+                for line in open(self.status_file, encoding='utf-8', errors='replace').read().splitlines():
+                    line = line.strip()
+                    if line.startswith('#'):
+                        self.text = line[1:].strip()
+                    elif line.startswith('watch ') and self.watch_class is None:
+                        self.watch_class = line[len('watch '):].strip().lower()
+        except OSError:
+            return False
+        return True
+
+    def done(self):
+        if not self.read():
+            return True
+        if not self.watch_class:
+            return False
+        try:
+            if self.windows is None:
+                self.windows = Windows()
+            return self.windows.shown(self.watch_class)
+        except OSError:
+            # no X11 display to watch: the end of the program closes the splash
+            self.watch_class = None
+            return False
+
+
+class Splash(Gtk.Window if Gtk else object):
+    def __init__(self, watcher, icon, title, subtitle):
         super().__init__(type=Gtk.WindowType.TOPLEVEL, title=title)
+        self.watcher = watcher
         self.set_decorated(False)
         self.set_type_hint(Gdk.WindowTypeHint.SPLASHSCREEN)
         self.set_position(Gtk.WindowPosition.CENTER)
@@ -197,56 +229,53 @@ class Splash(Gtk.Window):
         self.status.set_max_width_chars(48)
         self.status.set_justify(Gtk.Justification.CENTER)
         card.pack_start(self.status, False, False, 10)
-        self.rod = Rod((0.96, 0.65, 0.14), height=12)
-        self.rod.fraction = 1.0
-        card.pack_start(self.rod, False, False, 0)
+        self.bar = Gtk.ProgressBar()
+        self.bar.set_pulse_step(0.04)
+        self.bar.set_size_request(360, -1)
+        card.pack_start(self.bar, False, False, 0)
 
-        self.start = time.monotonic()
-        self.watch_class, self.windows = None, None
-        self.status_file, self.seen = status, None
-        self.read_status()
-        GLib.timeout_add(33, self.tick)
+        self.check()
+        GLib.timeout_add(50, self.tick)
         GLib.timeout_add(250, self.check)
         self.show_all()
 
-    def read_status(self):
-        try:
-            st = os.stat(self.status_file)
-            if (st.st_mtime_ns, st.st_size) == self.seen:
-                return True
-            self.seen = (st.st_mtime_ns, st.st_size)
-            lines = open(self.status_file, encoding='utf-8', errors='replace').read().splitlines()
-        except OSError:
-            return False
-        for line in lines:
-            line = line.strip()
-            if line.startswith('#'):
-                self.status.set_text(line[1:].strip())
-            elif line.startswith('watch ') and self.watch_class is None:
-                self.watch_class = line[len('watch '):].strip().lower()
-        return True
-
     def check(self):
-        if not self.read_status():
+        if self.watcher.done():
             Gtk.main_quit()
             return False
-        if not self.watch_class:
-            return True
-        try:
-            if self.windows is None:
-                self.windows = Windows()
-            if self.windows.shown(self.watch_class):
-                Gtk.main_quit()
-                return False
-        except OSError:
-            # no X11 display to watch: the end of the program closes the splash
-            self.watch_class = None
+        if self.watcher.text:
+            self.status.set_text(self.watcher.text)
         return True
 
     def tick(self):
-        self.rod.angle = 2 * math.pi * (time.monotonic() - self.start) / TURN_SECONDS
-        self.rod.queue_draw()
+        self.bar.pulse()
         return True
+
+
+def zenity(watcher, title, subtitle):
+    """Without GTK 3 for Python: a zenity progress window with the same text."""
+    try:
+        z = subprocess.Popen(['zenity', '--progress', '--pulsate', '--no-cancel', '--auto-close', '--width=420',
+                              '--title=' + title, '--text=' + subtitle], stdin=subprocess.PIPE, text=True)
+    except OSError:
+        return
+    shown = None
+    try:
+        while z.poll() is None and not watcher.done():
+            if watcher.text != shown:
+                shown = watcher.text
+                z.stdin.write('# %s — %s\n' % (subtitle, shown))
+                z.stdin.flush()
+            time.sleep(0.25)
+        z.stdin.write('100\n')
+        z.stdin.flush()
+        z.stdin.close()
+    except (BrokenPipeError, OSError):
+        pass
+    try:
+        z.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        z.kill()
 
 
 def main():
@@ -257,7 +286,12 @@ def main():
             args[a] = next(it, None)
     if not args['--status']:
         sys.exit(__doc__)
-    Splash(args['--status'], args['--icon'], args['--title'], args['--subtitle'])
+    watcher = Watcher(args['--status'])
+    if Gtk is None:
+        print('splash: no GTK 3 for Python (python3-gi, gir1.2-gtk-3.0), using zenity', file=sys.stderr)
+        zenity(watcher, args['--title'], args['--subtitle'])
+        return
+    Splash(watcher, args['--icon'], args['--title'], args['--subtitle'])
     Gtk.main()
 
 
