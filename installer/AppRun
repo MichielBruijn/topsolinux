@@ -36,6 +36,7 @@ RMS_PERSISTENCE="$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS D
 GEARLEVER=it.mijorus.gearlever
 NEED_GB=45
 . "$TOOLS/appimage-name.sh"
+. "$TOOLS/prefix-settings.sh"
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
@@ -575,6 +576,7 @@ step_finish()
     python3 "$TOOLS/userconfig.py" --if-missing "$conf/Config.ConfigData.xml" TopSolid/Kernel/WX/Application \
         EnableCommandPrediction Bool False >> "$LOG" 2>&1
     touch "$WINEPREFIX/.topsolinux"
+    settings_done
     unlink_desktop
     wine_run reg delete 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /f
     stop_services
@@ -656,7 +658,7 @@ appdir_runtime()
     cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
-    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/userconfig.py" \
+    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/prefix-settings.sh" "$TOOLS/userconfig.py" \
         "$TOOLS/splash.py" "$TOOLS/progress.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"

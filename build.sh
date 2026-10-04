@@ -77,6 +77,7 @@ else
 fi
 cp "$TOP/installer/tools/exeicon.py" "$TOP/installer/tools/fetchmedia.py" "$TOP/installer/tools/userconfig.py" \
     "$TOP/installer/tools/progress.py" "$TOP/installer/tools/splash.py" "$TOP/installer/tools/appimage-name.sh" \
+    "$TOP/installer/tools/prefix-settings.sh" \
     "$TOP/installer/tools/desktop-dpi" "$TOOLS/"
 cp -r "$TOP/installer/data/reg" "$TOP/installer/data/sql" "$DIR/usr/share/topsolinux/"
 cp "$TOP/VERSION" "$DIR/usr/share/topsolinux/VERSION"

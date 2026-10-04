@@ -347,6 +347,11 @@ ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:
 install_prefix
 remove_auto_drives
 find_version
+# settings that newer versions of the installer make, for a prefix made by an older one
+if [ -f "$TOOLS/prefix-settings.sh" ]; then
+    . "$TOOLS/prefix-settings.sh"
+    update_settings || msg "updating the Wine settings to level $SETTINGS_LEVEL failed"
+fi
 setup_gpu
 setup_crash_dumps
 
