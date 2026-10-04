@@ -40,32 +40,67 @@ LOG="$DATA/topsolid.log"
 TOOLS="$HERE/usr/lib/topsolinux"
 TSL_VERSION="$(cat "$HERE/usr/share/doc/topsolinux/VERSION" 2>/dev/null)"
 SPLASH="" SPLASH_FILE="$DATA/.splash"
+ICON="$HERE/usr/share/icons/hicolor/256x256/apps/topsolinux.png"
+[ -f "$TOOLS/appimage-name.sh" ] && . "$TOOLS/appimage-name.sh"
 LSERVRC='C:\Program Files (x86)\Common Files\Thales\Sentinel RMS License Manager\WinNT\lservrc'
 
 msg() { echo "topsolinux: $*" >&2; }
+
+# "TopSolid 7.20", from the AppImage's desktop entry
+app_name() { local n; n="$(sed -n 's/^Name=//p' "$HERE"/*.desktop 2>/dev/null | head -1)"; echo "${n:-TopSolid}"; }
 
 # TopSolid shows its own splash only after Wine, SQL Server and the local PDM have started
 splash_start()  # TEXT
 {
     [ -n "${DISPLAY:-}" ] && [ -f "$TOOLS/splash.py" ] && command -v python3 >/dev/null || return 0
     local sub
-    sub="$(sed -n 's/^Name=//p' "$HERE"/*.desktop 2>/dev/null | head -1)"
-    sub="${sub:-TopSolid}"
+    sub="$(app_name)"
     [ -n "$TSL_VERSION" ] && sub="$sub · TopSo'Linux $TSL_VERSION"
     echo "# $1" > "$SPLASH_FILE"
-    python3 "$TOOLS/splash.py" --status "$SPLASH_FILE" --icon "$HERE/usr/share/icons/hicolor/256x256/apps/topsolinux.png" \
+    python3 "$TOOLS/splash.py" --status "$SPLASH_FILE" --icon "$ICON" \
         --title "TopSo'Linux" --subtitle "$sub" 2>>"$LOG" &
     SPLASH=$!
 }
 splash() { [ -n "$SPLASH" ] && echo "$*" >> "$SPLASH_FILE"; return 0; }
 splash_stop() { [ -n "$SPLASH" ] && rm -f "$SPLASH_FILE"; SPLASH=""; }
 
+# Started from a file manager or a terminal rather than the app menu: Install puts it in the app menu with
+# Gear Lever (installed too when missing), Launch just starts it. Gear Lever asks the same when it opens an
+# AppImage, but only when it is installed and the file isn't executable.
+offer_install()
+{
+    local app
+    [ -f "${APPIMAGE:-}" ] && [ -z "${DESKTOPINTEGRATION:-}" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] &&
+        command -v zenity >/dev/null && command -v integrate_appimage >/dev/null || return 1
+    grep -qsF "$APPIMAGE" "$HOME/.local/share/applications/"*.desktop && return 1
+    app="$(app_name)"
+    zenity --question --width=480 --title="$app" --icon="$ICON" --ok-label=Install --cancel-label=Launch \
+        --text="<b>Install</b> puts TopSolid in your app menu with Gear Lever (installed too when missing; installing Flatpak asks for your password) and starts it. Right-click its icon there for TopSolid'Update, the license tool, Wine settings and stopping the background services.\n\n<b>Launch</b> only starts TopSolid.\n\n<small>TopSo'Linux $TSL_VERSION</small>" 2>/dev/null
+}
+
+install_appimage()
+{
+    local new
+    gearlever_installed || splash "# Installing Gear Lever (once)..."
+    if install_gearlever; then
+        splash "# Adding TopSolid to the app menu..."
+        if new="$(integrate_appimage "$APPIMAGE")"; then
+            msg "added to the app menu: $new"
+            APPIMAGE="$new"
+            echo "$new" > "$DATA/appimage.path"
+            return 0
+        fi
+    fi
+    msg "adding TopSolid to the app menu failed"
+    zenity --warning --width=420 --title="$(app_name)" --icon="$ICON" \
+        --text="TopSolid could not be added to the app menu. It starts now; see $LOG." 2>/dev/null &
+}
+
 # Gear Lever names an AppImage it integrates after the app (topsolid_7.20.appimage): the version goes back in
 fix_appimage_name()
 {
     local new
-    [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ] && [ -f "$TOOLS/appimage-name.sh" ] || return 0
-    . "$TOOLS/appimage-name.sh"
+    [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ] && command -v versioned_name >/dev/null || return 0
     new="$(versioned_name "$APPIMAGE")"
     [ "$new" != "$APPIMAGE" ] && [ ! -e "$new" ] || return 0
     mv "$APPIMAGE" "$new" 2>/dev/null || return 0
@@ -339,7 +374,10 @@ mkdir -p "$DATA"
 exec 2> >(tee -a "$LOG" >&2)
 echo "=== $(date '+%F %T') $0 ${*:-}" >&2
 
+INSTALL=0
+[ -z "${1:-}" ] && offer_install && INSTALL=1
 case "${1:-}" in ""|update|license-tool) splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
+[ $INSTALL = 1 ] && { install_appimage; splash "# Starting Wine..."; }
 fix_appimage_name
 
 # Wine's NTLM uses Samba's ntlm_auth (the PDM logs in to SQL Server with it); prefer the system's
