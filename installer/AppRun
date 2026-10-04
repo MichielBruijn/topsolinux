@@ -584,16 +584,6 @@ step_finish()
     stop_services
 }
 
-# the command that installs a distribution package, run as root
-package_install_command()
-{
-    if command -v apt-get >/dev/null; then echo "apt-get install -y $*"
-    elif command -v dnf >/dev/null; then echo "dnf install -y $*"
-    elif command -v zypper >/dev/null; then echo "zypper --non-interactive install $*"
-    elif command -v pacman >/dev/null; then echo "pacman -S --noconfirm $*"
-    fi
-}
-
 # TopSolid's SpaceMouse support goes through spacenavd (see tdxnavlib in wine/patches)
 step_spacemouse()
 {
@@ -774,37 +764,16 @@ step_appimage()
     echo "$out" > "$DATA/appimage.path"
 }
 
-gearlever_installed() { flatpak info "$GEARLEVER" >/dev/null 2>&1; }
-
 # Gear Lever puts the AppImage in its folder and adds it to the app menu; installed from Flathub when missing
 step_gearlever()
 {
-    local cmd out
     [ -n "$APPIMAGE_OUT" ] || APPIMAGE_OUT="$(cat "$DATA/appimage.path" 2>/dev/null)"
-    if ! gearlever_installed; then
-        say "Installing Gear Lever (asks for your password if Flatpak is missing)"
-        if ! command -v flatpak >/dev/null; then
-            cmd="$(package_install_command flatpak)"
-            [ -n "$cmd" ] && command -v pkexec >/dev/null && pkexec sh -c "$cmd" >> "$LOG" 2>&1
-        fi
-        if command -v flatpak >/dev/null; then
-            flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> "$LOG" 2>&1
-            flatpak install --user -y --noninteractive flathub "$GEARLEVER" >> "$LOG" 2>&1
-        fi
-    fi
-    if gearlever_installed; then
+    gearlever_installed || say "Installing Gear Lever (asks for your password if Flatpak is missing)"
+    if install_gearlever; then
         say "Adding TopSolid to the app menu with Gear Lever"
-        out="$(flatpak run "$GEARLEVER" --integrate "$APPIMAGE_OUT" -y 2>&1)"
-        echo "$out" >> "$LOG"
-        INTEGRATED="$(echo "$out" | sed -n 's/^\(\/.*\) was integrated successfully.*/\1/p' | tail -1)"
-        # Gear Lever names it after the app (topsolid_7.20.appimage); the TopSo'Linux version goes back in
-        if [ -f "$INTEGRATED" ]; then
-            out="$(versioned_name "$INTEGRATED")"
-            if [ "$out" = "$INTEGRATED" ] || mv "$INTEGRATED" "$out"; then
-                retarget_desktop_files "$INTEGRATED" "$out"
-                APPIMAGE_OUT="$out"
-                echo "$out" > "$DATA/appimage.path"
-            fi
+        if INTEGRATED="$(integrate_appimage "$APPIMAGE_OUT")"; then
+            APPIMAGE_OUT="$INTEGRATED"
+            echo "$INTEGRATED" > "$DATA/appimage.path"
         fi
     fi
     if [ -z "$INTEGRATED" ]; then

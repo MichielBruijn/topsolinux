@@ -79,7 +79,7 @@ story = [
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
             '<i>Wine settings</i> and <i>Stop background services</i>.',
-            'Another computer: copy the AppImage there and start it. The first start sets TopSolid up in '
+            'Another computer: copy the AppImage there and start it, and choose <i>Install</i> (app menu, with Gear Lever) or <i>Launch</i>. The first start sets TopSolid up in '
             + c('~/.local/share/topsolinux') + ', which takes a few minutes. Each computer needs its own license.',
             'Only use it on computers you are licensed for, and do not publish it: it contains TopSolid, SQL Server '
             'Express and Microsoft\'s runtimes.'),

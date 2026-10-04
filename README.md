@@ -74,8 +74,9 @@ to use another folder).
 ### The TopSolid AppImage
 
 The TopSolid AppImage is a complete, self-contained TopSolid. To use TopSolid on another computer,
-copy the AppImage there and start it: the first start sets TopSolid up in `~/.local/share/topsolinux` (a few
-minutes). Each computer needs its own license.
+copy the AppImage there and start it: it asks whether to **Install** it (in the app menu with Gear Lever,
+which is installed too when missing) or only **Launch** it. The first start sets TopSolid up in
+`~/.local/share/topsolinux` (a few minutes). Each computer needs its own license.
 
 Only use it on computers you are licensed for, and **do not publish it**: it contains TopSolid, SQL Server
 Express and Microsoft's runtimes.
