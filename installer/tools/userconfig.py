@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Set a value in a TopSolid configuration file (Config.ConfigData.xml), creating folders as needed.
 
-usage: userconfig.py FILE FOLDER/FOLDER/... NAME TYPE VALUE
+usage: userconfig.py [--if-missing] FILE FOLDER/FOLDER/... NAME TYPE VALUE
        e.g. userconfig.py Config.ConfigData.xml TopSolid/Pdm/UI/Connections/ConnectionDialog \
             HasLocalPdmAlreadyStarted Bool True
+
+--if-missing: leave a value that is already there (the user's own choice) as it is.
 
 The file keeps its byte order mark, XML declaration and line endings, so TopSolid reads it as before.
 """
@@ -17,7 +19,9 @@ EMPTY = ('<?xml version="1.0" encoding="utf-16"?>\n<ConfigData xmlns:xsd="http:/
 
 
 def main():
-    path, folders, name, vtype, value = sys.argv[1:6]
+    args = sys.argv[1:]
+    if_missing = args[:1] == ['--if-missing']
+    path, folders, name, vtype, value = args[1:6] if if_missing else args[:5]
     raw = open(path, 'rb').read() if os.path.exists(path) else b''
     bom = raw.startswith(b'\xef\xbb\xbf')
     text = raw.decode('utf-8-sig') if raw else EMPTY
@@ -36,6 +40,8 @@ def main():
             child = ET.SubElement(node, 'Folder', name=folder)
         node = child
     val = next((v for v in node.findall('Value') if v.get('name') == name), None)
+    if val is not None and if_missing:
+        return
     if val is None:
         val = ET.SubElement(node, 'Value', name=name)
     val.set('type', vtype)

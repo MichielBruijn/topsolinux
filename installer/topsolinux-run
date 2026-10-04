@@ -37,15 +37,49 @@ export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/dev/null/no-system-bus"
 PLACEHOLDER="__wineuser__"
 MARKER="$WINEPREFIX/.topsolinux"
 LOG="$DATA/topsolid.log"
+TOOLS="$HERE/usr/lib/topsolinux"
+TSL_VERSION="$(cat "$HERE/usr/share/doc/topsolinux/VERSION" 2>/dev/null)"
+SPLASH="" SPLASH_FILE="$DATA/.splash"
 LSERVRC='C:\Program Files (x86)\Common Files\Thales\Sentinel RMS License Manager\WinNT\lservrc'
 
 msg() { echo "topsolinux: $*" >&2; }
+
+# TopSolid shows its own splash only after Wine, SQL Server and the local PDM have started
+splash_start()  # TEXT
+{
+    [ -n "${DISPLAY:-}" ] && [ -f "$TOOLS/splash.py" ] && command -v python3 >/dev/null || return 0
+    local sub
+    sub="$(sed -n 's/^Name=//p' "$HERE"/*.desktop 2>/dev/null | head -1)"
+    sub="${sub:-TopSolid}"
+    [ -n "$TSL_VERSION" ] && sub="$sub · TopSo'Linux $TSL_VERSION"
+    echo "# $1" > "$SPLASH_FILE"
+    python3 "$TOOLS/splash.py" --status "$SPLASH_FILE" --icon "$HERE/usr/share/icons/hicolor/256x256/apps/topsolinux.png" \
+        --title "TopSo'Linux" --subtitle "$sub" 2>>"$LOG" &
+    SPLASH=$!
+}
+splash() { [ -n "$SPLASH" ] && echo "$*" >> "$SPLASH_FILE"; return 0; }
+splash_stop() { [ -n "$SPLASH" ] && rm -f "$SPLASH_FILE"; SPLASH=""; }
+
+# Gear Lever names an AppImage it integrates after the app (topsolid_7.20.appimage): the version goes back in
+fix_appimage_name()
+{
+    local new
+    [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ] && [ -f "$TOOLS/appimage-name.sh" ] || return 0
+    . "$TOOLS/appimage-name.sh"
+    new="$(versioned_name "$APPIMAGE")"
+    [ "$new" != "$APPIMAGE" ] && [ ! -e "$new" ] || return 0
+    mv "$APPIMAGE" "$new" 2>/dev/null || return 0
+    retarget_desktop_files "$APPIMAGE" "$new"
+    echo "$new" > "$DATA/appimage.path"
+    msg "renamed $APPIMAGE to ${new##*/}"
+}
 
 install_prefix()
 {
     [ -f "$MARKER" ] && return
     [ -d "$HERE/prefix" ] || { msg "no TopSolid installation in $WINEPREFIX"; exit 1; }
     msg "first start, copying the TopSolid installation to $WINEPREFIX (this takes a few minutes)"
+    splash "# First start: copying TopSolid to this computer (a few minutes)"
     mkdir -p "$WINEPREFIX" || exit 1
     # --remove-destination: a copy that was interrupted before left read-only files cp can't overwrite
     cp -a --remove-destination "$HERE/prefix/." "$WINEPREFIX/" || { msg "copy failed"; exit 1; }
@@ -58,6 +92,12 @@ install_prefix()
         grep -rlI --null "$PLACEHOLDER" "$WINEPREFIX/drive_c/users/$user" "$WINEPREFIX/drive_c/ProgramData" 2>/dev/null |
             xargs -0 -r sed -i "s/$PLACEHOLDER/$user/g"
     fi
+    # Command Prediction trains a neural network in the background all the time (1.4 cores, 10 GB); users can turn it on
+    local conf
+    for conf in "$WINEPREFIX/drive_c/users/$user/AppData/Roaming/TOPSOLID/TopSolid/"*/TopSolid/Kernel/SX; do
+        [ -d "$conf" ] && python3 "$TOOLS/userconfig.py" --if-missing "$conf/Config.ConfigData.xml" \
+            TopSolid/Kernel/WX/Application EnableCommandPrediction Bool False 2>/dev/null
+    done
     touch "$MARKER"
 }
 
@@ -123,7 +163,9 @@ wait_for_pdm()
     local start=$SECONDS state retried=0 notify=""
     "$WINE" wineboot >/dev/null 2>&1
     [ "$(pdm_state)" = RUNNING ] && pdm_listening && return
-    if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null; then
+    if [ -n "$SPLASH" ]; then
+        splash "# Starting SQL Server and the local PDM..."
+    elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null; then
         zenity --progress --pulsate --no-cancel --auto-close --title=TopSolid \
             --text="Starting SQL Server and the local PDM..." < <(while [ -e "$WINEPREFIX/.pdm-wait" ]; do echo 1; sleep 1; done; echo 100) &
         notify=$!
@@ -297,6 +339,9 @@ mkdir -p "$DATA"
 exec 2> >(tee -a "$LOG" >&2)
 echo "=== $(date '+%F %T') $0 ${*:-}" >&2
 
+case "${1:-}" in ""|update|license-tool) splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
+fix_appimage_name
+
 # Wine's NTLM uses Samba's ntlm_auth (the PDM logs in to SQL Server with it); prefer the system's
 ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"
 install_prefix
@@ -306,9 +351,12 @@ setup_gpu
 setup_crash_dumps
 
 case "${1:-}" in
-    "")           apply_scale; apply_formats; wait_for_pdm; start_unstick; run "$TOPSOLID\\TopSolid.exe" ;;
-    update)       apply_scale; apply_formats; run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
-    license-tool) apply_scale; apply_formats; run "$TOPSOLID\\TopSolid.License.exe" ;;
+    "")           apply_scale; apply_formats; wait_for_pdm; start_unstick
+                  splash "# Starting TopSolid..."; splash "watch topsolid.exe"; run "$TOPSOLID\\TopSolid.exe" ;;
+    update)       apply_scale; apply_formats; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
+                  run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
+    license-tool) apply_scale; apply_formats; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"
+                  run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
         [ -f "${2:-}" ] || { msg "usage: $0 license FILE"; exit 1; }
         cp "$2" "$("$WINE" winepath -u "$LSERVRC" 2>/dev/null)" && msg "license installed"
