@@ -45,24 +45,25 @@ Briefly tested, with care:
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
-     TopSolid from TopSolid's own server (the one `TopSolid.Downloader.exe` uses),
-   - options: add TopSolid to your app menu with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)
-     (recommended, on by default; Flatpak and Gear Lever are installed when missing) and SpaceMouse support.
+     TopSolid from TopSolid's own server (the one `TopSolid.Downloader.exe` uses).
+   The installer also puts TopSolid in your app menu with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)
+   and installs SpaceMouse support (spacenavd); Flatpak and Gear Lever are installed when missing. Installing
+   packages asks for your password.
 4. TopSolid's own installer opens. Choose the modules you use, click Install and accept the license
    agreement. **Its installation of SQL Server stops with an error. That is expected:** TopSo'Linux stops
    it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
 The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.5-x86_64.AppImage`; its name shows the
-TopSo'Linux version that made it). With Gear Lever it is in your app menu (Gear Lever moves it to its own
-folder as `topsolid_7.20_topsolinux-1.6.5.appimage`); without, the installer asks where to save it. Gear Lever
-names an AppImage after the app when you add it yourself; the first start puts the version back.
+TopSo'Linux version that made it). Gear Lever moves it to its own folder as
+`topsolid_7.20_topsolinux-1.6.5.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
+Gear Lever names an AppImage after the app when you add it yourself; the first start puts the version back.
 
 Without a desktop, or to script it:
 
 ```
 ./TopSoLinux-Installer-1.6.5-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
-    [--replace] [--gearlever | --appimage-dir ~/Applications] [--spacemouse]
+    [--replace] [--appimage-dir ~/Applications] [--no-spacemouse]
 ./TopSoLinux-Installer-1.6.5-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
@@ -130,8 +131,8 @@ Resize a window: hold Super and drag with the middle mouse button, or press Alt+
 
 ### SpaceMouse
 
-Tick *SpaceMouse support* in the installer, or install and start
-[spacenavd](https://spacenav.sourceforge.net) yourself (`sudo apt install spacenavd`). TopSo'Linux includes
+The installer installs and starts [spacenavd](https://spacenav.sourceforge.net) (or do it yourself:
+`sudo apt install spacenavd`). TopSo'Linux includes
 a replacement for 3Dconnexion's navigation library that talks to spacenavd, so no 3Dconnexion driver is
 needed. Axis directions and speeds are in the registry (`regedit`,
 `HKEY_CURRENT_USER\Software\Wine\TDxNavLib`): `AxisSigns`, `AxisMap`, `TranslationSpeed`, `RotationSpeed`.
@@ -163,7 +164,7 @@ The installer:
    system databases, file locations, a login for the Windows administrators group, TCP port 14330),
 5. performs the first start of the local PDM server (it only starts the first time while TopSolid's
    PDM server admin tool is running) and waits until its database is complete,
-6. makes the TopSolid AppImage and, if chosen, adds it to Gear Lever.
+6. makes the TopSolid AppImage and adds it to Gear Lever.
 
 While TopSolid runs, a small watchdog keeps its dialogs from hanging in an endless repaint under Wine,
 such as the PDM "Connection" dialog of the first start or a command's dialog (`installer/tools/unstick.c`

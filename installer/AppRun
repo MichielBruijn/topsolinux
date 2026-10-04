@@ -4,7 +4,9 @@
 #
 # usage: TopSoLinux-Installer.AppImage                      graphical installer
 #        TopSoLinux-Installer.AppImage install --media DIR | --download DIR [--replace]
-#                                          [--gearlever | --appimage-dir DIR] [--spacemouse | --no-spacemouse]
+#                                          [--appimage-dir DIR] [--no-spacemouse]
+#        Gear Lever (app menu) and SpaceMouse support (spacenavd) are always installed; for scripts,
+#        --appimage-dir saves the AppImage there instead of adding it to Gear Lever
 #        TopSoLinux-Installer.AppImage update-appimage [FILE]
 #                                          give a TopSolid AppImage this version's Wine and starter
 #
@@ -39,7 +41,7 @@ NEED_GB=45
 . "$TOOLS/prefix-settings.sh"
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
-MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
+MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=1 GUI=0 PROGRESS=""
 APPIMAGE_OUT="" INTEGRATED="" UPDATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL="" LAST_HEADING="" PROGRESS_SINCE=""
 
 # --- user interface -----------------------------------------------------------------------------
@@ -582,17 +584,6 @@ step_finish()
     stop_services
 }
 
-# 3Dconnexion devices: vendor 256f, or Logitech's old 046d:c6xx
-spacemouse_present()
-{
-    local d
-    for d in /sys/bus/usb/devices/*; do
-        [ -f "$d/idVendor" ] || continue
-        case "$(cat "$d/idVendor"):$(cat "$d/idProduct" 2>/dev/null)" in 256f:*|046d:c6*) return 0 ;; esac
-    done
-    return 1
-}
-
 # the command that installs a distribution package, run as root
 package_install_command()
 {
@@ -924,22 +915,6 @@ ask()
             *) exit 0 ;;
         esac
     done
-
-    local sm=FALSE
-    spacemouse_present && sm=TRUE
-    choice="$(zenity --list --checklist --width=620 --height=420 --title="$TITLE" --window-icon="$ICON" \
-        --text="<b>Options</b>\n\n<b>Gear Lever</b> puts TopSolid in your app menu. Right-click its icon there for TopSolid'Update, the license tool, Wine settings (for example screen scaling) and stopping the background services." \
-        --column="" --column="" --hide-header --separator="|" \
-        TRUE "Add TopSolid to the app menu with Gear Lever (recommended)" \
-        $sm "SpaceMouse support (installs spacenavd)")" || exit 0
-    case "$choice" in *SpaceMouse*) SPACEMOUSE=1 ;; *) SPACEMOUSE=0 ;; esac
-    case "$choice" in
-        *"Gear Lever"*) USE_GEARLEVER=1 ;;
-        *)
-            USE_GEARLEVER=0
-            APPIMAGE_DIR="$(zenity --file-selection --directory --title="Save AppImage in" --window-icon="$ICON" \
-                            --filename="$DEFAULT_APPIMAGE_DIR/")" || exit 0 ;;
-    esac
 }
 
 # --- main ----------------------------------------------------------------------------------------
@@ -965,8 +940,7 @@ case "${1:-}" in
         done
         [ -n "$MEDIA" ] || MEDIA="$(find_media)"
         [ $DOWNLOAD = 1 ] || check_media "${MEDIA:-/nonexistent}" ||
-            { echo "usage: $0 install --media DIR | --download DIR [--replace] [--gearlever | --appimage-dir DIR] [--spacemouse]" >&2; exit 1; }
-        [ "$SPACEMOUSE" = auto ] && { spacemouse_present && SPACEMOUSE=1 || SPACEMOUSE=0; }
+            { echo "usage: $0 install --media DIR | --download DIR [--replace] [--appimage-dir DIR] [--no-spacemouse]" >&2; exit 1; }
         [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null && GUI=1
         mkdir -p "$DATA"
         check_existing
@@ -985,7 +959,7 @@ case "${1:-}" in
         ask
         ;;
     *)
-        echo "usage: $0 [install --media DIR | --download DIR [--replace] [--gearlever | --appimage-dir DIR] [--spacemouse | --no-spacemouse]]" >&2
+        echo "usage: $0 [install --media DIR | --download DIR [--replace] [--appimage-dir DIR] [--no-spacemouse]]" >&2
         echo "       $0 update-appimage [FILE]" >&2
         exit 1 ;;
 esac
