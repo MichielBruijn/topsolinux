@@ -35,6 +35,7 @@ OSQL='C:\Program Files\Microsoft SQL Server\150\Tools\Binn\OSQL.EXE'
 RMS_PERSISTENCE="$WINEPREFIX/drive_c/ProgramData/SafeNet Sentinel/Sentinel RMS Development Kit/System"
 GEARLEVER=it.mijorus.gearlever
 NEED_GB=45
+. "$TOOLS/appimage-name.sh"
 
 UPDATE_APPIMAGE=0 UPDATE_FROM=""
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=auto GUI=0 PROGRESS=""
@@ -570,6 +571,9 @@ step_finish()
     mkdir -p "$conf"
     python3 "$TOOLS/userconfig.py" "$conf/Config.ConfigData.xml" TopSolid/Pdm/UI/Connections/ConnectionDialog \
         HasLocalPdmAlreadyStarted Bool True >> "$LOG" 2>&1 || { say "Setting up TopSolid's PDM connection failed"; return 1; }
+    # Command Prediction trains a neural network in the background all the time (1.4 cores, 10 GB); users can turn it on
+    python3 "$TOOLS/userconfig.py" --if-missing "$conf/Config.ConfigData.xml" TopSolid/Kernel/WX/Application \
+        EnableCommandPrediction Bool False >> "$LOG" 2>&1
     touch "$WINEPREFIX/.topsolinux"
     unlink_desktop
     wine_run reg delete 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /f
@@ -652,7 +656,8 @@ appdir_runtime()
     cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
-    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$dir/usr/lib/topsolinux/"
+    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/userconfig.py" \
+        "$TOOLS/splash.py" "$TOOLS/progress.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"
     cp "$HERE/topsolinux-run" "$dir/AppRun"
@@ -664,34 +669,6 @@ app_icon()  # APPDIR
     rm -f "$1/topsolid.svg" "$1/.DirIcon"
     cp "$DATA/topsolid.png" "$1/topsolid.png" 2>/dev/null || cp "$HERE/topsolinux.png" "$1/topsolid.png"
     ln -s topsolid.png "$1/.DirIcon"
-}
-
-# the name of a TopSolid AppImage shows the TopSo'Linux version that made it
-versioned_name()  # PATH
-{
-    local dir="${1%/*}" base="${1##*/}"
-    base="$(printf %s "$base" | sed -E 's/[-_]topsolinux[-_]([0-9]+(\.[0-9]+)*|dev)//I')"
-    case "$base" in
-        *-x86_64.*) base="${base/-x86_64./-TopSoLinux-$TSL_VERSION-x86_64.}" ;;
-        *.*) base="${base%.*}_topsolinux-$TSL_VERSION.${base##*.}" ;;
-        *) base="${base}_topsolinux-$TSL_VERSION" ;;
-    esac
-    echo "$dir/$base"
-}
-
-# the app menu entries that start OLD start NEW
-retarget_desktop_files()  # OLD NEW
-{
-    local f o n
-    o="$(printf %s "$1" | sed 's/[][\/.*^$&]/\\&/g')"
-    n="$(printf %s "$2" | sed 's/[\/&]/\\&/g')"
-    grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop |
-        while IFS= read -r -d '' f; do sed -i "s/$o/$n/g" "$f"; done
-    # Gear Lever keeps its settings per app under the md5 of the path
-    f="$HOME/.var/app/$GEARLEVER/config/gearlever.conf"
-    [ -f "$f" ] || return 0
-    sed -i -e "s/^\[app\.$(printf %s "$1" | md5sum | cut -c1-32)/[app.$(printf %s "$2" | md5sum | cut -c1-32)/" \
-        -e "s/^file_path = $o\$/file_path = $n/" "$f"
 }
 
 # the TopSolid AppImage of this installation: where it was made, or where Gear Lever put it

@@ -39,12 +39,12 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#777777'))
-    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.6.4 · unofficial, not affiliated with TOPSOLID SAS")
+    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.6.5 · unofficial, not affiliated with TOPSOLID SAS")
     canvas.drawRightString(190 * mm, 12 * mm, f'page {doc.page}')
     canvas.restoreState()
 
 
-APP = 'TopSolid-7.20-TopSoLinux-1.6.4-x86_64.AppImage'
+APP = 'TopSolid-7.20-TopSoLinux-1.6.5-x86_64.AppImage'
 story = [
     Paragraph(TITLE, h1),
     Paragraph('Short guide to installing and using TopSolid 7.20 with its local PDM on Linux', sub),
@@ -62,7 +62,7 @@ story = [
             'automatically.'),
 
     Paragraph('2. Installing', h2),
-    bullets('Make ' + c('TopSoLinux-Installer-1.6.4-x86_64.AppImage') + ' executable (file properties, or '
+    bullets('Make ' + c('TopSoLinux-Installer-1.6.5-x86_64.AppImage') + ' executable (file properties, or '
             + c('chmod +x') + ') and start it.',
             'Choose the installation media (found automatically in Downloads, your home folder or a USB drive), '
             'another folder, or the download from TopSolid\'s server.',
@@ -74,7 +74,7 @@ story = [
             'Wait: the whole installation takes 30 to 60 minutes. If it is interrupted, start the installer again '
             'and it continues where it stopped.'),
     Paragraph('Everything is installed in ' + c('~/.local/share/topsolinux') + '. The result is ' + c(APP) + ', a '
-              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.4.appimage') + ').', body),
+              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.5.appimage') + ').', body),
 
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
@@ -90,7 +90,9 @@ story = [
             'Libraries: import the ones you need from TopSolid.',
             'New Project: enter a name, choose Blank Template and click the green check mark.'),
     Paragraph('SQL Server, the local PDM and the license server start by themselves and stop again when you close '
-              'TopSolid. The very first start of the PDM can take a few minutes; a small window shows it is starting.',
+              'TopSolid. The very first start of the PDM can take a few minutes; TopSo\'Linux shows what it is doing '
+              'until TopSolid shows its own splash screen. <i>Command Prediction</i> is off in a new installation (it '
+              'keeps a processor core and several GB busy); turn it on in TopSolid\'s options if you want it.',
               body),
 
     Paragraph('5. Updates', h2),
