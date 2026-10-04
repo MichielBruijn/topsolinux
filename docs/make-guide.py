@@ -66,8 +66,8 @@ story = [
             + c('chmod +x') + ') and start it.',
             'Choose the installation media (found automatically in Downloads, your home folder or a USB drive), '
             'another folder, or the download from TopSolid\'s server.',
-            'Options: <b>Gear Lever</b> puts TopSolid in your app menu (recommended; it is installed when missing). '
-            '<b>SpaceMouse support</b> installs spacenavd and asks for your password.',
+            'The installer puts TopSolid in your app menu with <b>Gear Lever</b> and installs SpaceMouse support '
+            '(spacenavd); installing them asks for your password.',
             'TopSolid\'s own installer opens: choose the modules you use, click Install and accept the license '
             'agreement. <b>Its installation of SQL Server stops with an error. That is expected:</b> TopSo\'Linux '
             'stops it and installs SQL Server itself. Close the errors and the setup.',
