@@ -39,12 +39,12 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#777777'))
-    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.6.9 · unofficial, not affiliated with TOPSOLID SAS")
+    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.6.10 · unofficial, not affiliated with TOPSOLID SAS")
     canvas.drawRightString(190 * mm, 12 * mm, f'page {doc.page}')
     canvas.restoreState()
 
 
-APP = 'TopSolid-7.20-TopSoLinux-1.6.9-x86_64.AppImage'
+APP = 'TopSolid-7.20-TopSoLinux-1.6.10-x86_64.AppImage'
 story = [
     Paragraph(TITLE, h1),
     Paragraph('Short guide to installing and using TopSolid 7.20 with its local PDM on Linux', sub),
@@ -62,7 +62,7 @@ story = [
             'automatically.'),
 
     Paragraph('2. Installing', h2),
-    bullets('Make ' + c('TopSoLinux-Installer-1.6.9-x86_64.AppImage') + ' executable (file properties, or '
+    bullets('Make ' + c('TopSoLinux-Installer-1.6.10-x86_64.AppImage') + ' executable (file properties, or '
             + c('chmod +x') + ') and start it.',
             'Choose the installation media (found automatically in Downloads, your home folder or a USB drive), '
             'another folder, or the download from TopSolid\'s server.',
@@ -74,7 +74,7 @@ story = [
             'Wait: the whole installation takes 30 to 60 minutes. If it is interrupted, start the installer again '
             'and it continues where it stopped.'),
     Paragraph('Everything is installed in ' + c('~/.local/share/topsolinux') + '. The result is ' + c(APP) + ', a '
-              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.9.appimage') + ').', body),
+              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.10.appimage') + ').', body),
 
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
