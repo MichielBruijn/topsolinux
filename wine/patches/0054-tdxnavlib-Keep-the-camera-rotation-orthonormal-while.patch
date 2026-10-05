@@ -1,0 +1,84 @@
+From 7de1fee2ae0a9754b3c6bee569b234aa5b4d2213 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 5 Oct 2026 15:38:12 +0200
+Subject: [PATCH] tdxnavlib: Keep the camera rotation orthonormal while
+ orbiting.
+
+R' = (R rot R^T) R amplifies any rounding error in R every step; with an
+application that stores the matrix as given, the camera flew off after
+about 90 degrees of continuous orbiting and ended up as NaN.
+
+LOCAL, not for upstream.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017MBbD2kBCyUzKmT1Ycpijd
+---
+ dlls/tdxnavlib/main.c | 34 +++++++++++++++++++++++++++++-----
+ 1 file changed, 29 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index 6dccf14..13565eb 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -274,6 +274,28 @@ static void mat_vec( double m[3][3], const double v[3], double out[3] )
+     memcpy( out, tmp, sizeof(tmp) );
+ }
+ 
++/* make the columns (camera axes in world space) orthonormal again */
++static void orthonormalize( double r[3][3] )
++{
++    double len, dot;
++    int i, c;
++
++    for (c = 0; c < 2; c++)
++    {
++        if (c == 1)
++        {
++            for (dot = 0.0, i = 0; i < 3; i++) dot += r[i][0] * r[i][1];
++            for (i = 0; i < 3; i++) r[i][1] -= dot * r[i][0];
++        }
++        for (len = 0.0, i = 0; i < 3; i++) len += r[i][c] * r[i][c];
++        if ((len = sqrt( len )) < 1e-12) return;
++        for (i = 0; i < 3; i++) r[i][c] /= len;
++    }
++    r[0][2] = r[1][0] * r[2][1] - r[2][0] * r[1][1];
++    r[1][2] = r[2][0] * r[0][1] - r[0][0] * r[2][1];
++    r[2][2] = r[0][0] * r[1][1] - r[1][0] * r[0][1];
++}
++
+ static BOOL get_pivot( struct navlib *nl, double pivot[3] )
+ {
+     value_t value;
+@@ -296,7 +318,7 @@ static BOOL get_pivot( struct navlib *nl, double pivot[3] )
+ 
+ static void navigate( struct navlib *nl, const int in[6], double dt )
+ {
+-    double t[3], w[3], pivot[3], rel[3], d[3], rot[3][3], world_rot[3][3], rt[3][3];
++    double t[3], w[3], pivot[3], rel[3], d[3], rot[3][3], world_rot[3][3], rt[3][3], new_r[3][3];
+     double angle, dist = 1.0, extents_scale = 1.0;
+     BOOL perspective = TRUE, have_pivot, have_extents = FALSE;
+     value_t value, extents;
+@@ -342,14 +364,16 @@ static void navigate( struct navlib *nl, const int in[6], double dt )
+     {
+         for (i = 0; i < 3; i++) w[i] /= angle;
+         axis_angle_matrix( w, angle, rot );
+-        /* world rotation = R * rot * R^T */
++        /* Rounding errors in R would grow every step (R' = R rot R^T R): keep it a rotation,
++         * and turn the camera as R' = R rot; the world rotation R rot R^T moves it around the pivot. */
++        orthonormalize( cam.r );
+         for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) rt[i][j] = cam.r[j][i];
+-        mat_mul( cam.r, rot, world_rot );
+-        mat_mul( world_rot, rt, world_rot );
++        mat_mul( cam.r, rot, new_r );
++        mat_mul( new_r, rt, world_rot );
+ 
+         mat_vec( world_rot, rel, rel );
+         for (i = 0; i < 3; i++) cam.pos[i] = pivot[i] + rel[i];
+-        mat_mul( world_rot, cam.r, cam.r );
++        memcpy( cam.r, new_r, sizeof(new_r) );
+     }
+ 
+     mat_vec( cam.r, t, d );
+-- 
+2.53.0
+
