@@ -1,0 +1,42 @@
+From e4e6b1b5154758964b79878d9cef53a209c351fa Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 5 Oct 2026 21:11:52 +0200
+Subject: [PATCH 55/56] win32u: Send mouse input on a transparent window to the
+ window below it.
+
+When every window at the point answers HTTRANSPARENT, such as a tooltip
+without owner shown over the item it describes, the message went to the
+owner only. Search the windows below it, as Windows does; the click was
+lost otherwise.
+---
+ dlls/win32u/message.c | 13 +++----------
+ 1 file changed, 3 insertions(+), 10 deletions(-)
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index d1c2696..cf3c839 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2618,17 +2618,10 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
+     }
+     else
+     {
+-        HWND orig = msg->hwnd;
+-
+         msg->hwnd = window_from_point( msg->hwnd, msg->pt, &hittest, TRUE );
+-        if (!msg->hwnd) /* As a heuristic, try the next window if it's the owner of orig */
+-        {
+-            HWND next = get_window_relative( orig, GW_HWNDNEXT );
+-
+-            if (next && get_window_relative( orig, GW_OWNER ) == next &&
+-                is_current_thread_window( next ))
+-                msg->hwnd = window_from_point( next, msg->pt, &hittest, TRUE );
+-        }
++        /* the window is transparent (HTTRANSPARENT), like a tooltip over the item it describes:
++         * the message goes to the window below it, as on Windows */
++        if (!msg->hwnd) msg->hwnd = window_from_point( 0, msg->pt, &hittest, TRUE );
+     }
+ 
+     if (!msg->hwnd || !is_current_thread_window( msg->hwnd ))
+-- 
+2.53.0
+

@@ -1,0 +1,36 @@
+From 04f62fb1dea9af4e1b363bab30e1fa6260140899 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 5 Oct 2026 21:11:52 +0200
+Subject: [PATCH 56/56] winex11.drv: Take the window manager's rect for
+ maximized windows.
+
+A maximized window has its borders outside the monitor, so it counts as
+fullscreen and config changes on the same monitor were ignored. The window
+manager places it on the monitor instead, and the window was drawn shifted
+by the border width while the mouse was not. Only ignore them for windows
+in _NET_WM_STATE_FULLSCREEN.
+---
+ dlls/winex11.drv/window.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index f25e159..647ad71 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1763,8 +1763,11 @@ static UINT window_update_client_config( struct x11drv_win_data *data )
+      * adding __NET_WM_STATE_FULLSCREEN will make WMs move the window to cover exactly the monitor
+      * rect. If the application sets a visible rect slightly larger than the monitor rect and insists
+      * on changing to the rect that it previously set when the rect is changed by the WM, then the
+-     * window rect will be repeatedly changed by the WM and the application, causing a flickering effect */
+-    if (data->is_fullscreen)
++     * window rect will be repeatedly changed by the WM and the application, causing a flickering effect.
++     * A maximized window (only _NET_WM_STATE_MAXIMIZED, see window_set_net_wm_state) is placed by the WM
++     * on the monitor, without the borders Windows puts outside it: take that rect, else the window is
++     * drawn shifted by the border width while the mouse is not */
++    if (data->is_fullscreen && !(data->current_state.net_wm_state & (1 << NET_WM_STATE_MAXIMIZED)))
+     {
+         if (xinerama_get_fullscreen_monitors( &data->rects.visible, &old_generation, old_monitors )
+             && xinerama_get_fullscreen_monitors( &data->current_state.rect, &generation, monitors )
+-- 
+2.53.0
+
