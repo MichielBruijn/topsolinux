@@ -17,7 +17,8 @@ if [ ! -d "$SRC/.git" ]; then
     git clone https://gitlab.winehq.org/wine/wine.git "$SRC"
 fi
 git -C "$SRC" fetch -q origin "$COMMIT" 2>/dev/null || true
-git -C "$SRC" checkout -q -B topsolinux "$COMMIT"
+# -f: the previous run regenerated configure and some Makefile.in files
+git -C "$SRC" checkout -q -f -B topsolinux "$COMMIT"
 git -C "$SRC" -c user.name=topsolinux -c user.email=topsolinux@invalid am -q "$HERE"/patches/*.patch
 # tdxnavlib is a new dll: regenerate the build files
 (cd "$SRC" && tools/make_makefiles >/dev/null && autoreconf -f >/dev/null 2>&1)
