@@ -1,0 +1,44 @@
+From 4860a76250719757e2db34f2967529da0e45e14d Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 5 Oct 2026 22:02:51 +0200
+Subject: [PATCH] winex11.drv: Prefer the monitor at the top-left of the X
+ screen as primary.
+
+Windows puts the primary monitor at (0,0), so a monitor above or left of
+the host's primary got negative coordinates. WinForms reads those as large
+unsigned values, so the size grip of a dialog took the whole right edge of
+it, close button included. With the monitor at the X origin as primary no
+coordinate is negative; Wine already used it when the RandR primary output
+is unusable.
+---
+ dlls/winex11.drv/xrandr.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/dlls/winex11.drv/xrandr.c b/dlls/winex11.drv/xrandr.c
+index b147b95..5ede8d3 100644
+--- a/dlls/winex11.drv/xrandr.c
++++ b/dlls/winex11.drv/xrandr.c
+@@ -633,6 +633,20 @@ static RECT get_primary_rect( XRRScreenResources *resources )
+     RECT first_rect = {0};
+     INT i;
+ 
++    /* Windows puts the primary monitor at (0,0), so with the host's primary below or right of another
++     * monitor, that one gets negative coordinates, which many applications mishandle (WinForms reads
++     * them as large unsigned values). Prefer the monitor at the top-left of the X screen, like the
++     * fallback below: no coordinate is negative then */
++    for (i = 0; i < resources->ncrtc; ++i)
++    {
++        if (!(crtc_info = pXRRGetCrtcInfo( gdi_display, resources, resources->crtcs[i] ))) continue;
++        if (crtc_info->mode && !crtc_info->x && !crtc_info->y)
++            SetRect( &primary_rect, 0, 0, crtc_info->width, crtc_info->height );
++        pXRRFreeCrtcInfo( crtc_info );
++        crtc_info = NULL;
++        if (!IsRectEmpty( &primary_rect )) return primary_rect;
++    }
++
+     primary_output = pXRRGetOutputPrimary( gdi_display, root_window );
+     if (!primary_output)
+         goto fallback;
+-- 
+2.53.0
+
