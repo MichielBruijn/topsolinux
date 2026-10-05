@@ -15,8 +15,9 @@ license server and a few dozen Wine bugs.
 ## Tested
 
 - **Ubuntu 26.04**, fresh installation (virtual machine): media downloaded from TopSolid's server, Gear Lever.
-- **Ubuntu 24.04**, a daily-driver laptop (NVIDIA + Intel): installation from local media, updated to SP6
-  with TopSolid'Update, and a real project packaged in an existing TopSolid installation and imported.
+- **Ubuntu 26.04, upgraded from 24.04**, a daily-driver laptop (NVIDIA + Intel) with an external 4K monitor:
+  installation from local media, updated to SP6 with TopSolid'Update, and a real project packaged in an
+  existing TopSolid installation and imported.
 
 Both with TopSolid 7.20 (media 7.20.400.0 RTM).
 
@@ -40,8 +41,8 @@ Briefly tested, with care:
 
 ## Installing
 
-1. Download `TopSoLinux-Installer-1.6.9-x86_64.AppImage` from the [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.9-x86_64.AppImage`) and start it.
+1. Download `TopSoLinux-Installer-1.6.10-x86_64.AppImage` from the [releases](../../releases).
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.10-x86_64.AppImage`) and start it.
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
@@ -54,17 +55,17 @@ Briefly tested, with care:
    it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
-The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.9-x86_64.AppImage`; its name shows the
+The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.10-x86_64.AppImage`; its name shows the
 TopSo'Linux version that made it). Gear Lever moves it to its own folder as
-`topsolid_7.20_topsolinux-1.6.9.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
+`topsolid_7.20_topsolinux-1.6.10.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
 Gear Lever names an AppImage after the app when you add it yourself; the first start puts the version back.
 
 Without a desktop, or to script it:
 
 ```
-./TopSoLinux-Installer-1.6.9-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+./TopSoLinux-Installer-1.6.10-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
     [--replace] [--appimage-dir ~/Applications] [--no-spacemouse]
-./TopSoLinux-Installer-1.6.9-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.6.10-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again. For an existing
