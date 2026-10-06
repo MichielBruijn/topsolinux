@@ -1,18 +1,42 @@
 #!/bin/bash
 # print the DPI at which X11 applications (like Wine) should draw to match the desktop's scale; 96 = 100%
+# with --cursor: the X11 cursor size instead, which follows the scale but not the text size
+cursor=; [ "${1:-}" = --cursor ] && cursor=1
 
-# GNOME with Xwayland native scaling shows X11 windows unscaled: use the scale of the primary monitor
-if [ -n "${WAYLAND_DISPLAY:-}" ] &&
-    gsettings get org.gnome.mutter experimental-features 2>/dev/null | grep -q xwayland-native-scaling; then
-    scale="$(gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig \
-        --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>/dev/null |
-        grep -o '([0-9-]*, [0-9-]*, [0-9.]*, uint32 [0-9]*, true' | head -1 | cut -d, -f3 | tr -d ' ')"
-    text="$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null)"
-    if [ -n "$scale" ]; then
-        awk -v s="$scale" -v t="${text:-1}" 'BEGIN { printf "%d\n", 96 * s * t + 0.5 }'
-        exit
+# GNOME on Wayland: measure how Xwayland is scaled instead of trusting the experimental-features flag,
+# which Mutter 50 no longer knows while Ubuntu still lists it. The primary monitor's X11 size against
+# its logical size (mode / scale) is the factor Mutter leaves to X11 applications: 1 when Mutter
+# scales X11 windows itself, the monitor's scale with Xwayland native scaling
+if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    xw="$(xrandr --query 2>/dev/null | sed -n 's/.* connected primary \([0-9]*\)x[0-9]*+.*/\1/p' | head -1)"
+    state="$(busctl --user --json=short call org.gnome.Mutter.DisplayConfig /org/gnome/Mutter/DisplayConfig \
+        org.gnome.Mutter.DisplayConfig GetCurrentState 2>/dev/null)"
+    if [ -n "$cursor" ]; then
+        base="$(gsettings get org.gnome.desktop.interface cursor-size 2>/dev/null)"; text=1
+    else
+        base=96; text="$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null)"
+    fi
+    if [ -n "$xw" ] && [ -n "$state" ]; then
+        dpi="$(printf '%s' "$state" | python3 -I -c '
+import json, sys
+_, monitors, logical, _ = json.load(sys.stdin)["data"]
+x, y, scale, transform, primary, connectors, _ = next(l for l in logical if l[4])
+modes = next(m[1] for m in monitors if m[0][0] == connectors[0][0])
+w, h = next((m[1], m[2]) for m in modes if m[6].get("is-current", {}).get("data"))
+w = h if transform % 2 else w
+print(int(int(sys.argv[3]) * int(sys.argv[1]) * scale / w * float(sys.argv[2]) + 0.5))
+' "$xw" "${text:-1}" "${base:-24}" 2>/dev/null)"
+        [ -n "$dpi" ] && { echo "$dpi"; exit; }
     fi
 fi
-# X11 sessions and KDE Plasma pass the scale to X11 applications as Xft.dpi
-dpi="$(xrdb -query 2>/dev/null | sed -n 's/^Xft\.dpi:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)"
+# X11 sessions and KDE Plasma pass the scale to X11 applications as Xft.dpi, and the cursor size as
+# Xcursor.size. Without that (WSLg) libXcursor makes it 1/48 of the screen height, which is huge
+res="$(xrdb -query 2>/dev/null)"
+if [ -n "$cursor" ]; then
+    size="$(printf '%s\n' "$res" | sed -n 's/^Xcursor\.size:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)"
+    [ -n "$size" ] && { echo "$size"; exit; }
+    echo $(( 24 * $("$0") / 96 ))
+    exit
+fi
+dpi="$(printf '%s\n' "$res" | sed -n 's/^Xft\.dpi:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)"
 echo "${dpi:-96}"
