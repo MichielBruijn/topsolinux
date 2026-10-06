@@ -1,0 +1,183 @@
+From a9cbab3026744e633ab4225b8fc3d7f7d7b08028 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 6 Oct 2026 11:36:25 +0200
+Subject: [PATCH] comctl32/treeview: Faster updates of large trees, and
+ TVS_EX_DOUBLEBUFFER.
+
+An application that refreshes all its items, as TopSolid's operations tree
+of thousands of items does after every change, made each update take
+seconds:
+- Setting the same text again kept nothing: the item was measured and
+  redrawn each time, several server calls. The old text now stays.
+- WinForms turns redrawing off and on after setting each item, and turning
+  it on updated the whole tree, quadratic in the number of items. When
+  nothing happened since it was turned off, there is nothing to update.
+- TVM_SETEXTENDEDSTYLE is kept, and with TVS_EX_DOUBLEBUFFER the tree is
+  drawn in a bitmap first.
+---
+ dlls/comctl32/treeview.c | 78 ++++++++++++++++++++++++++++++++++------
+ 1 file changed, 67 insertions(+), 11 deletions(-)
+
+diff --git a/dlls/comctl32/treeview.c b/dlls/comctl32/treeview.c
+index d541893..0cf866d 100644
+--- a/dlls/comctl32/treeview.c
++++ b/dlls/comctl32/treeview.c
+@@ -65,6 +65,7 @@ typedef struct tagTREEVIEW_INFO
+   HWND          hwnd;
+   HWND          hwndNotify;     /* Owner window to send notifications to */
+   DWORD         dwStyle;
++  DWORD         dwExStyle;      /* TVS_EX_*, from TVM_SETEXTENDEDSTYLE */
+   HTREEITEM     root;
+   UINT          uInternalStatus;
+   INT           Timer;
+@@ -72,6 +73,7 @@ typedef struct tagTREEVIEW_INFO
+   INT           cdmode;         /* last custom draw setting */
+   UINT          uScrollTime;	/* max. time for scrolling in milliseconds */
+   BOOL          bRedraw;        /* if FALSE we validate but don't redraw in TREEVIEW_Paint() */
++  BOOL          redrawIdle;     /* WM_SETREDRAW FALSE, and no other message since */
+ 
+   UINT          uItemHeight;    /* item height */
+   BOOL          bHeightSet;
+@@ -1172,8 +1174,6 @@ TREEVIEW_DoSetItemT(const TREEVIEW_INFO *infoPtr, TREEVIEW_ITEM *item,
+     /* Do this first in case it fails. */
+     if (tvItem->mask & TVIF_TEXT)
+     {
+-        item->textWidth = 0; /* force width recalculation */
+-
+         /* Covers != TEXTCALLBACKA too, and undocumented: pszText of NULL also means TEXTCALLBACK */
+         if (tvItem->pszText != LPSTR_TEXTCALLBACKW && tvItem->pszText != NULL)
+         {
+@@ -1191,19 +1191,28 @@ TREEVIEW_DoSetItemT(const TREEVIEW_INFO *infoPtr, TREEVIEW_ITEM *item,
+ 
+             callbackClear |= TVIF_TEXT;
+ 
+-            Free(item->pszText);
+-            item->pszText = newText;
+-            item->cchTextMax = len;
+             if (isW)
+-                lstrcpynW(item->pszText, tvItem->pszText, len);
++                lstrcpynW(newText, tvItem->pszText, len);
++            else
++                MultiByteToWideChar(CP_ACP, 0, (LPSTR)tvItem->pszText, -1, newText, len);
++
++            /* The same text again, as applications that refresh all their items set: keep the old block,
++             * so the item isn't measured and redrawn (each costs several server calls) */
++            if (item->pszText && !(item->callbackMask & TVIF_TEXT) && !lstrcmpW(item->pszText, newText))
++                Free(newText);
+             else
+-                MultiByteToWideChar(CP_ACP, 0, (LPSTR)tvItem->pszText, -1,
+-                                    item->pszText, len);
++            {
++                Free(item->pszText);
++                item->pszText = newText;
++                item->cchTextMax = len;
++                item->textWidth = 0; /* force width recalculation */
++            }
+ 
+             TRACE("setting text %s, item %p\n", debugstr_w(item->pszText), item);
+         }
+ 	else
+ 	{
++            item->textWidth = 0; /* force width recalculation */
+             callbackSet |= TVIF_TEXT;
+             item->pszText = ReAlloc(item->pszText, TEXT_CALLBACK_SIZE * sizeof(WCHAR));
+ 	    item->cchTextMax = TEXT_CALLBACK_SIZE;
+@@ -1672,7 +1681,16 @@ TREEVIEW_DeleteItem(TREEVIEW_INFO *infoPtr, HTREEITEM item)
+ static LRESULT
+ TREEVIEW_SetRedraw(TREEVIEW_INFO* infoPtr, WPARAM wParam)
+ {
++    /* Nothing changed since redrawing was turned off: nothing to update. WinForms turns it off and on
++     * after setting each item, and updating the whole tree each time made that quadratic */
++    if (wParam && !infoPtr->bRedraw && infoPtr->redrawIdle)
++    {
++        infoPtr->bRedraw = TRUE;
++        return 0;
++    }
++
+     infoPtr->bRedraw = wParam != 0;
++    infoPtr->redrawIdle = !infoPtr->bRedraw;
+ 
+     if (infoPtr->bRedraw)
+     {
+@@ -2259,7 +2277,7 @@ TREEVIEW_SetItemT(TREEVIEW_INFO *infoPtr, const TVITEMEXW *tvItem, BOOL isW)
+ 	return FALSE;
+ 
+     /* If the text or TVIS_BOLD was changed, and it is visible, recalculate. */
+-    if ((tvItem->mask & TVIF_TEXT
++    if (((tvItem->mask & TVIF_TEXT && (item->pszText != originalItem.pszText || item->callbackMask & TVIF_TEXT))
+ 	 || (tvItem->mask & TVIF_STATE && tvItem->stateMask & TVIS_BOLD))
+ 	&& ISVISIBLE(item))
+     {
+@@ -3154,7 +3172,8 @@ TREEVIEW_ResetImageStateIndex(TREEVIEW_INFO *infoPtr, TREEVIEW_ITEM *item)
+ static LRESULT
+ TREEVIEW_Paint(TREEVIEW_INFO *infoPtr, HDC hdc_ref)
+ {
+-    HDC hdc;
++    HDC hdc, mem;
++    HBITMAP bitmap, old_bitmap;
+     PAINTSTRUCT ps;
+     RECT rc;
+ 
+@@ -3181,6 +3200,27 @@ TREEVIEW_Paint(TREEVIEW_INFO *infoPtr, HDC hdc_ref)
+     {
+         hdc = BeginPaint(infoPtr->hwnd, &ps);
+         rc  = ps.rcPaint;
++
++        /* TVS_EX_DOUBLEBUFFER: draw in a bitmap first and show it at once */
++        if (infoPtr->bRedraw && infoPtr->dwExStyle & TVS_EX_DOUBLEBUFFER && !IsRectEmpty(&rc) &&
++            (mem = CreateCompatibleDC(hdc)))
++        {
++            if ((bitmap = CreateCompatibleBitmap(hdc, rc.right - rc.left, rc.bottom - rc.top)))
++            {
++                old_bitmap = SelectObject(mem, bitmap);
++                SetWindowOrgEx(mem, rc.left, rc.top, NULL);
++                TREEVIEW_FillBkgnd(infoPtr, mem, &rc);
++                TREEVIEW_Refresh(infoPtr, mem, &rc);
++                BitBlt(hdc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, mem, rc.left, rc.top, SRCCOPY);
++                SelectObject(mem, old_bitmap);
++                DeleteObject(bitmap);
++                DeleteDC(mem);
++                EndPaint(infoPtr->hwnd, &ps);
++                return 0;
++            }
++            DeleteDC(mem);
++        }
++
+         if(ps.fErase)
+             TREEVIEW_FillBkgnd(infoPtr, hdc, &rc);
+     }
+@@ -5753,7 +5793,11 @@ TREEVIEW_WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+ 
+     TRACE("hwnd %p, msg %04x, wp %Ix, lp %Ix\n", hwnd, uMsg, wParam, lParam);
+ 
+-    if (infoPtr) TREEVIEW_VerifyTree(infoPtr);
++    if (infoPtr)
++    {
++        TREEVIEW_VerifyTree(infoPtr);
++        if (uMsg != WM_SETREDRAW) infoPtr->redrawIdle = FALSE;
++    }
+     else
+     {
+ 	if (uMsg == WM_CREATE)
+@@ -5819,6 +5863,18 @@ TREEVIEW_WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+     case TVM_GETITEMRECT:
+ 	return TREEVIEW_GetItemRect(infoPtr, (BOOL)wParam, (LPRECT)lParam);
+ 
++    case TVM_SETEXTENDEDSTYLE:
++    {
++        DWORD old = infoPtr->dwExStyle;
++        DWORD mask = wParam ? wParam : ~0u;
++        infoPtr->dwExStyle = (old & ~mask) | (lParam & mask);
++        TRACE("extended style %#lx\n", infoPtr->dwExStyle);
++        return old;
++    }
++
++    case TVM_GETEXTENDEDSTYLE:
++        return infoPtr->dwExStyle;
++
+     case TVM_GETITEMSTATE:
+ 	return TREEVIEW_GetItemState(infoPtr, (HTREEITEM)wParam, (UINT)lParam);
+ 
+-- 
+2.53.0
+
