@@ -172,8 +172,8 @@ While TopSolid runs, a small watchdog keeps its dialogs from hanging in an endle
 such as the PDM "Connection" dialog of the first start or a command's dialog (`installer/tools/unstick.c`
 explains why).
 
-Wine needed 58 changes for TopSolid, from COM security, WMI and NTLM authentication for SQL Server to
-certificate handling, services, painting, tooltips, clicks through tooltips, maximized windows, 3D frames shown in time, the primary monitor, a thread leak and a SpaceMouse bridge. They are in
+Wine needed 59 changes for TopSolid, from COM security, WMI and NTLM authentication for SQL Server to
+certificate handling, services, painting, tooltips, clicks through tooltips, maximized windows, 3D frames shown in time, the primary monitor, large trees, a thread leak and a SpaceMouse bridge. They are in
 `wine/patches`, on top of the upstream commit in `wine/UPSTREAM_COMMIT`. They are not submitted to Wine:
 Wine does not accept AI-generated code (see below).
 
