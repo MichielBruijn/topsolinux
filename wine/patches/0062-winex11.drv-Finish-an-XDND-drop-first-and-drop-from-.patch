@@ -1,0 +1,121 @@
+From 3888a16efe403e9bad5884f52b78a64464ffc32c Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 6 Oct 2026 14:12:54 +0200
+Subject: [PATCH] winex11.drv: Finish an XDND drop first, and drop from the
+ message loop.
+
+The drop target ran inside the handling of the XdndDrop event, and the
+source was told the drop was finished only after it. TopSolid asks whether
+to convert a dropped STEP file in its drop handler: the source still held
+the pointer, so the dialog got no clicks, and nested in the event handling
+it was not even drawn. Now the source is told first (the data came with
+XdndEnter; an accepted drop is reported as a copy, so a source never
+deletes what the target might still refuse), and the drop is posted to
+the window and runs from the message loop.
+---
+ dlls/winex11.drv/event.c  | 28 ++++++++++++++++++++++------
+ dlls/winex11.drv/window.c |  3 +++
+ dlls/winex11.drv/x11drv.h |  4 +++-
+ 3 files changed, 28 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 884814b..bf0097e 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -1519,6 +1519,9 @@ static long drop_effect_to_xdnd_action( UINT effect )
+ }
+ 
+ 
++/* the effect of the last XdndPosition, what the drop will be accepted with */
++static UINT xdnd_effect;
++
+ static void handle_xdnd_position_event( HWND hwnd, XClientMessageEvent *event )
+ {
+     XClientMessageEvent e;
+@@ -1528,6 +1531,7 @@ static void handle_xdnd_position_event( HWND hwnd, XClientMessageEvent *event )
+     point = root_to_virtual_screen( event->data.l[2] >> 16, event->data.l[2] & 0xFFFF );
+     effect = xdnd_action_to_drop_effect( event->data.l[4] );
+     effect = drag_drop_drag( hwnd, point, effect );
++    xdnd_effect = effect;
+ 
+     TRACE( "actionRequested(%ld) chosen(0x%x) at x(%d),y(%d)\n",
+            event->data.l[4], effect, point.x, point.y );
+@@ -1553,11 +1557,12 @@ static void handle_xdnd_position_event( HWND hwnd, XClientMessageEvent *event )
+ static void handle_xdnd_drop_event( HWND hwnd, XClientMessageEvent *event )
+ {
+     XClientMessageEvent e;
+-    UINT effect;
+ 
+-    effect = drag_drop_drop( hwnd );
+-
+-    /* Tell the target we are finished. */
++    /* Tell the source we are finished before the application handles the drop: the data came with
++     * XdndEnter, and the source holds the pointer until it is told. An application that asks
++     * something in its drop handler, as TopSolid does, could otherwise never get an answer. The
++     * outcome isn't known yet, so an accepted drop is reported as a copy: a source never deletes
++     * what the application might still refuse */
+     memset( &e, 0, sizeof(e) );
+     e.type = ClientMessage;
+     e.display = event->display;
+@@ -1565,9 +1570,20 @@ static void handle_xdnd_drop_event( HWND hwnd, XClientMessageEvent *event )
+     e.message_type = x11drv_atom(XdndFinished);
+     e.format = 32;
+     e.data.l[0] = event->window;
+-    e.data.l[1] = !!effect;
+-    e.data.l[2] = drop_effect_to_xdnd_action( effect );
++    e.data.l[1] = !!xdnd_effect;
++    e.data.l[2] = xdnd_effect ? x11drv_atom(XdndActionCopy) : None;
+     XSendEvent( event->display, event->data.l[0], False, NoEventMask, (XEvent *)&e );
++    XFlush( event->display );
++
++    /* and from the message loop, outside the handling of this event: in it, a dialog the application
++     * shows from its drop handler kept the thread busy and was never drawn */
++    NtUserPostMessage( hwnd, WM_X11DRV_DRAG_DROP, 0, 0 );
++}
++
++/* the drop, posted by handle_xdnd_drop_event */
++void xdnd_drop( HWND hwnd )
++{
++    drag_drop_drop( hwnd );
+ }
+ 
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 647ad71..69df0b7 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -3568,6 +3568,9 @@ LRESULT X11DRV_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+     case WM_X11DRV_ADD_TAB:
+         taskbar_add_tab( hwnd );
+         return 0;
++    case WM_X11DRV_DRAG_DROP:
++        xdnd_drop( hwnd );
++        return 0;
+     default:
+         FIXME( "got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp );
+         return 0;
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 8c35484..fb5d680 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -610,6 +610,7 @@ typedef BOOL (*x11drv_event_handler)( HWND hwnd, XEvent *event );
+ 
+ extern void X11DRV_register_event_handler( int type, x11drv_event_handler handler, const char *name );
+ 
++extern void xdnd_drop( HWND hwnd );
+ extern BOOL X11DRV_ButtonPress( HWND hwnd, XEvent *event );
+ extern BOOL X11DRV_ButtonRelease( HWND hwnd, XEvent *event );
+ extern BOOL X11DRV_MotionNotify( HWND hwnd, XEvent *event );
+@@ -639,7 +640,8 @@ enum x11drv_window_messages
+     WM_X11DRV_UPDATE_CLIPBOARD = WM_WINE_FIRST_DRIVER_MSG,
+     WM_X11DRV_SET_WIN_REGION,
+     WM_X11DRV_DELETE_TAB,
+-    WM_X11DRV_ADD_TAB
++    WM_X11DRV_ADD_TAB,
++    WM_X11DRV_DRAG_DROP
+ };
+ 
+ /* _NET_WM_STATE properties that we keep track of */
+-- 
+2.53.0
+
