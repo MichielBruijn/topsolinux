@@ -1,0 +1,38 @@
+From 9c9e683ab3aa49b0d4147044b78db71357ffad3b Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 6 Oct 2026 12:30:59 +0200
+Subject: [PATCH] win32u: Don't make a window much larger than the monitor
+ fullscreen.
+
+A window that covers a monitor counted as fullscreen, so a large window
+dragged from a large monitor to a smaller one was made fullscreen there,
+cut to the monitor while Wine kept its size, and could no longer be
+resized. Only a window at most a border larger than the monitor counts
+as fullscreen now; maximized windows and fullscreen games are unchanged.
+---
+ dlls/win32u/window.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+index 8ddc40f..8a26cf4 100644
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -2291,8 +2291,14 @@ HICON get_window_icon_info( HWND hwnd, UINT type, HICON icon, ICONINFO *ret )
+ 
+ static BOOL is_fullscreen( const MONITORINFO *info, const RECT *rect )
+ {
++    /* covering the monitor, at most a border past it: a window much larger than the monitor, as a window
++     * dragged from a larger monitor, isn't made fullscreen (and unresizable) there */
++    static const int border = 64;
++
+     return rect->left <= info->rcMonitor.left && rect->right >= info->rcMonitor.right &&
+-           rect->top <= info->rcMonitor.top && rect->bottom >= info->rcMonitor.bottom;
++           rect->top <= info->rcMonitor.top && rect->bottom >= info->rcMonitor.bottom &&
++           rect->left >= info->rcMonitor.left - border && rect->right <= info->rcMonitor.right + border &&
++           rect->top >= info->rcMonitor.top - border && rect->bottom <= info->rcMonitor.bottom + border;
+ }
+ 
+ /***********************************************************************
+-- 
+2.53.0
+
