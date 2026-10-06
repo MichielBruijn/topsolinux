@@ -19,7 +19,7 @@ license server and a few dozen Wine bugs.
   installation from local media, updated to SP6 with TopSolid'Update, and a real project packaged in an
   existing TopSolid installation and imported.
 
-Both with TopSolid 7.20 (media 7.20.400.0 RTM).
+Both with TopSolid 7.20.400.128 (from media 7.20.400.0 RTM).
 
 Briefly tested, with care:
 
