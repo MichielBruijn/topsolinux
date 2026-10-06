@@ -1,0 +1,31 @@
+From 22e44f041653f49c6fe642e4f80c40fad65c5eda Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 6 Oct 2026 11:54:50 +0200
+Subject: [PATCH] comctl32/treeview: Don't erase the background of a
+ TVS_EX_DOUBLEBUFFER tree.
+
+Its background is filled when painting, together with the items. Erased on
+WM_ERASEBKGND as well, the tree showed empty on the screen until it was
+painted, a flicker each time an application rebuilt it.
+---
+ dlls/comctl32/treeview.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dlls/comctl32/treeview.c b/dlls/comctl32/treeview.c
+index 0cf866d..f84f014 100644
+--- a/dlls/comctl32/treeview.c
++++ b/dlls/comctl32/treeview.c
+@@ -2975,6 +2975,10 @@ TREEVIEW_EraseBackground(const TREEVIEW_INFO *infoPtr, HDC hdc)
+ 
+     TRACE("%p\n", infoPtr);
+ 
++    /* TVS_EX_DOUBLEBUFFER: the background is filled when painting, together with the items; erased
++     * here as well, the tree showed empty until it was painted */
++    if (infoPtr->dwExStyle & TVS_EX_DOUBLEBUFFER) return 1;
++
+     GetClientRect(infoPtr->hwnd, &rect);
+     TREEVIEW_FillBkgnd(infoPtr, hdc, &rect);
+ 
+-- 
+2.53.0
+
