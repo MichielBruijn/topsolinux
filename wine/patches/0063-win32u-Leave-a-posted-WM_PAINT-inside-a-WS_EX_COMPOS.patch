@@ -1,0 +1,34 @@
+From d5a71be0fcf872b7f0fb726269801b91b208646e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Wed, 7 Oct 2026 18:37:10 +0200
+Subject: [PATCH 63/63] win32u: Leave a posted WM_PAINT inside a WS_EX_COMPOSITED
+ window to the application.
+
+A WM_PAINT that the application posts itself isn't a paint request. TopSolid's combo boxes
+post one while its messages are locked; peeked with PM_NOREMOVE it stayed in the queue, was
+sent again and again, and PeekMessage never returned. Only send WM_PAINT to a window that
+still has something to paint.
+---
+ dlls/win32u/message.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index cf3c839..5ae69c2 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -3235,8 +3235,10 @@ static int peek_message( MSG *msg, const struct peek_message_filter *filter )
+                 if (!(flags & PM_NOYIELD) && idle_event) NtSetEvent( idle_event, NULL );
+             }
+             /* Windows paints the windows inside a WS_EX_COMPOSITED window in one pass: they get WM_PAINT
+-             * sent, never from the queue, and are validated after it whether or not they painted */
+-            if (info.msg.message == WM_PAINT && info.msg.hwnd && has_composited_ancestor( info.msg.hwnd ))
++             * sent, never from the queue, and are validated after it whether or not they painted. A WM_PAINT
++             * posted by the application isn't a paint request: it stays in the queue with PM_NOREMOVE */
++            if (info.msg.message == WM_PAINT && info.msg.hwnd && has_composited_ancestor( info.msg.hwnd ) &&
++                NtUserGetUpdateRect( info.msg.hwnd, NULL, FALSE ))
+             {
+                 send_message( info.msg.hwnd, WM_PAINT, 0, 0 );
+                 NtUserRedrawWindow( info.msg.hwnd, NULL, 0, RDW_VALIDATE | RDW_FRAME | RDW_NOINTERNALPAINT | RDW_NOCHILDREN );
+-- 
+2.53.0
+
