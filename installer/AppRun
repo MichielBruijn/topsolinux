@@ -610,7 +610,7 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
-Actions=update;license;winecfg;stop;
+Actions=update;license;winecfg;stop;topsolinux;
 
 [Desktop Action update]
 Name=TopSolid'Update
@@ -627,6 +627,10 @@ Exec=AppRun winecfg
 [Desktop Action stop]
 Name=Stop background services
 Exec=AppRun stop
+
+[Desktop Action topsolinux]
+Name=Check for TopSo'Linux updates
+Exec=AppRun topsolinux-update
 EOF
 }
 
@@ -640,7 +644,7 @@ appdir_runtime()
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
     cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/prefix-settings.sh" "$TOOLS/userconfig.py" \
-        "$TOOLS/splash.py" "$TOOLS/progress.py" "$dir/usr/lib/topsolinux/"
+        "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/topsolinux-release.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"
     cp "$HERE/topsolinux-run" "$dir/AppRun"
@@ -668,7 +672,7 @@ find_topsolid_appimage()
 # installation in it stays as it was made: nothing of this computer's TopSolid or projects gets into it.
 update_appimage()  # FILE
 {
-    local old="$1" new build="$DATA/appimage-build" need free
+    local old="$1" new build="$DATA/appimage-build" need free f
     new="$(versioned_name "$old")"
     need=$(( $(stat -c %s "$old") * 3 / 1024 / 1024 / 1024 + 2 ))
     free=$(( $(df -Pk "$DATA" | awk 'NR == 2 { print $4 }') / 1024 / 1024 ))
@@ -683,6 +687,7 @@ update_appimage()  # FILE
     appdir_runtime "$build/squashfs-root"
     # older ones may have an SVG icon, which file managers don't show
     [ -f "$build/squashfs-root/topsolid.png" ] || app_icon "$build/squashfs-root"
+    for f in "$build/squashfs-root/"*.desktop; do add_update_action "$f" AppRun; done
     part 180 "Making the TopSolid AppImage with $NAME $TSL_VERSION"
     PART="$new.part"
     ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool.AppImage" --comp zstd \
@@ -802,7 +807,8 @@ check_system()
     local free
     mkdir -p "$DATA" || fail "Cannot create $DATA."
     free=$(df -Pk "$DATA" | awk 'NR==2 {print int($4/1024/1024)}')
-    [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free, $NEED_GB GB needed."
+    # updating a TopSolid AppImage checks its own need, about three times the AppImage
+    [ $UPDATE_APPIMAGE = 1 ] || [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free, $NEED_GB GB needed."
     command -v python3 >/dev/null || fail "python3 is needed."
     ldd --version 2>/dev/null | head -1 | awk '{v=$NF; split(v,a,"."); exit !(a[1]>2 || (a[1]==2 && a[2]>=38))}' ||
         fail "This Linux is too old: glibc 2.38 or newer is needed (Ubuntu 24.04, Debian 13, Fedora 39 or newer)."
