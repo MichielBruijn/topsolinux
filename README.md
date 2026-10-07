@@ -130,7 +130,7 @@ Right-click TopSolid's icon in the app menu for TopSolid'Update, the license too
 | `stop` | stop SQL Server, the PDM and the license server |
 | `topsolinux-update` | update this AppImage to the newest TopSo'Linux release, if there is one |
 | `update-check off` | don't look for TopSo'Linux updates at start (`on`: once a day again, the default) |
-| `debug` | TopSolid hangs: write its stacks to `~/topsolid-debug-….txt` for a bug report (stops nothing) |
+| `debug` | TopSolid hangs or typing goes nowhere: write its windows, keyboard focus and stacks to `~/topsolid-debug-….txt` for a bug report (stops nothing) |
 | `winecfg`, `regedit`, `shell` | Wine tools, for troubleshooting |
 
 TopSolid follows the scale of your desktop by itself, unless you set one with `scale` or in Wine's settings.
