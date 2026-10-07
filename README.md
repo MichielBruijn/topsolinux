@@ -41,8 +41,8 @@ Briefly tested, with care:
 
 ## Installing
 
-1. Download `TopSoLinux-Installer-1.6.18-x86_64.AppImage` from the [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.18-x86_64.AppImage`) and start it.
+1. Download `TopSoLinux-Installer-1.6.19-x86_64.AppImage` from the [releases](../../releases).
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.19-x86_64.AppImage`) and start it.
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
@@ -55,17 +55,17 @@ Briefly tested, with care:
    it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
-The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.18-x86_64.AppImage`; its name shows the
+The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.19-x86_64.AppImage`; its name shows the
 TopSo'Linux version that made it). Gear Lever moves it to its own folder as
-`topsolid_7.20_topsolinux-1.6.18.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
+`topsolid_7.20_topsolinux-1.6.19.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
 Gear Lever names an AppImage after the app when you add it yourself; the first start puts the version back.
 
 Without a desktop, or to script it:
 
 ```
-./TopSoLinux-Installer-1.6.18-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+./TopSoLinux-Installer-1.6.19-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
     [--replace] [--appimage-dir ~/Applications] [--no-spacemouse]
-./TopSoLinux-Installer-1.6.18-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.6.19-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again. For an existing
@@ -90,6 +90,15 @@ installer and choose *Update the AppImage* (or run `./TopSoLinux-Installer-…Ap
 The TopSolid AppImage gets the newer Wine and
 starter, and the new TopSo'Linux version in its name; your installation and projects stay, and so does the
 installation inside the AppImage.
+
+**TopSolid AppImage deleted?** Start the installer and choose *Update the AppImage*: when it can't find the
+TopSolid AppImage, it offers to make it again from your installation (or run
+`./TopSoLinux-Installer-…AppImage remake-appimage`). Your installation and projects stay; the new AppImage
+contains them as they are now, so don't give it to others.
+
+**Firewall:** with ufw on, the installer asks to open UDP port 5093 from private networks for TopSolid's
+licenses (Sentinel RMS): for the answers when TopSolid or the license tool looks for license servers on the
+network, and for other computers when the license server runs on this one.
 
 TopSolid's service packs are installed with TopSolid'Update (right-click the icon). They update the
 installation in `~/.local/share/topsolinux`, not the AppImage file, so Gear Lever's update button does not
