@@ -9,6 +9,8 @@
 #        --appimage-dir saves the AppImage there instead of adding it to Gear Lever
 #        TopSoLinux-Installer.AppImage update-appimage [FILE]
 #                                          give a TopSolid AppImage this version's Wine and starter
+#        TopSoLinux-Installer.AppImage remake-appimage
+#                                          make the TopSolid AppImage again from the installation
 #
 # environment: TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
@@ -40,7 +42,7 @@ NEED_GB=45
 . "$TOOLS/appimage-name.sh"
 . "$TOOLS/prefix-settings.sh"
 
-UPDATE_APPIMAGE=0 UPDATE_FROM=""
+UPDATE_APPIMAGE=0 UPDATE_FROM="" REMAKE_APPIMAGE=0
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=1 GUI=0 PROGRESS=""
 APPIMAGE_OUT="" INTEGRATED="" UPDATED="" NOTES="" LAST_SAY="" PART="" PLAN="" LAST_TOTAL="" LAST_HEADING="" PROGRESS_SINCE=""
 
@@ -193,13 +195,18 @@ step_range()
 step()
 {
     grep -qx "$1" "$STATE" 2>/dev/null && return
+    run_step "$1"
+    echo "$1" >> "$STATE"
+}
+
+run_step()
+{
     LAST_HEADING="heading $(step_heading "$1")"
     LAST_TOTAL="total $(step_range "$1")"
     progress_send "$LAST_HEADING"
     progress_send "$LAST_TOTAL"
     progress_send "part $(step_seconds "$1")"
     "step_$1" || fail "${LAST_SAY:-Step $1 failed.}"
-    echo "$1" >> "$STATE"
 }
 
 # --- Wine helpers --------------------------------------------------------------------------------
@@ -598,6 +605,28 @@ step_spacemouse()
     return 0
 }
 
+# TopSolid's licenses (Sentinel RMS) use UDP port 5093. ufw lets through the answer of the one license
+# server asked, but not the answers to the broadcast that looks for license servers on the network,
+# nor other computers asking a license server on this one. Allowed from private networks only, once.
+firewall_license()
+{
+    local cmd="" net
+    [ -f "$DATA/.firewall" ] && return 0
+    command -v ufw >/dev/null && grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf || return 0
+    for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+        cmd="$cmd ufw allow proto udp from $net to any port 5093 comment 'TopSolid licenses' >/dev/null &&"
+        cmd="$cmd ufw allow proto udp from $net port 5093 comment 'TopSolid licenses' >/dev/null &&"
+    done
+    if command -v pkexec >/dev/null; then
+        say "Opening the firewall for TopSolid's licenses (asks for your password)"
+        pkexec sh -c "${cmd% &&}" >> "$LOG" 2>&1 && { touch "$DATA/.firewall"; return 0; }
+    fi
+    NOTES="$NOTES\n• Firewall: allow UDP port 5093 from your network for TopSolid's licenses (for example <tt>sudo ufw allow from 192.168.0.0/16 to any port 5093 proto udp</tt> and <tt>sudo ufw allow proto udp from 192.168.0.0/16 port 5093</tt>)."
+    return 0
+}
+
+step_firewall() { firewall_license; }
+
 desktop_file()
 {
     cat <<EOF
@@ -707,17 +736,53 @@ update_appimage()  # FILE
 
 run_update_appimage()
 {
-    local old="${UPDATE_FROM:-$(find_topsolid_appimage)}"
+    local old="${UPDATE_FROM:-$(find_topsolid_appimage)}" choice
     if [ -z "$old" ] && [ $GUI = 1 ]; then
+        if grep -qx finish "$STATE" 2>/dev/null; then
+            choice="$(zenity --question --width=560 --title="$TITLE" --window-icon="$ICON" \
+                --text="<b>The TopSolid AppImage is not found.</b>\n\n<b>Make it again</b>: a new TopSolid AppImage is made from your installation, with $NAME $TSL_VERSION. Your installation and projects stay. The new AppImage contains them as they are now: don't give it to others.\n\n<b>Choose the AppImage</b>: it is still there, but somewhere else." \
+                --ok-label="Make it again" --cancel-label="Cancel" --extra-button="Choose the AppImage")" && choice=remake
+            case "$choice" in
+                remake) remake_appimage; return ;;
+                "Choose the AppImage") ;;
+                *) exit 0 ;;
+            esac
+        fi
         old="$(zenity --file-selection --title="Choose the TopSolid AppImage" --window-icon="$ICON" \
             --filename="$HOME/" --file-filter="AppImage | *.AppImage *.appimage")" || exit 0
     fi
-    [ -f "$old" ] || fail "No TopSolid AppImage found; name it: $0 update-appimage FILE"
+    [ -f "$old" ] || fail "No TopSolid AppImage found; name it: $0 update-appimage FILE, or make it again: $0 remake-appimage"
     echo "=== $(date '+%F %T') $TITLE, update $old" >> "$LOG"
     progress_start "Updating the TopSolid AppImage"
     update_appimage "$old"
+    firewall_license
     progress_stop
-    info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${UPDATED/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it."
+    info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${UPDATED/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it.$NOTES"
+}
+
+# The TopSolid AppImage was deleted: make it again from the installation, which stays as it is
+remake_appimage()
+{
+    local s free
+    grep -qx finish "$STATE" 2>/dev/null || fail "TopSolid is not installed with $NAME on this computer."
+    pgrep -f 'TopSolid\.exe' >/dev/null && fail "TopSolid is running. Close it, then make the AppImage again."
+    # the copy of the installation is hard-linked; only the AppImage itself takes space
+    mkdir -p "$APPIMAGE_DIR"
+    free="$(df -Pk "$APPIMAGE_DIR" 2>/dev/null | awk 'NR == 2 { print int($4 / 1024 / 1024) }')"
+    [ "${free:-0}" -ge 10 ] || fail "Making the TopSolid AppImage needs 10 GB of free disk space in $APPIMAGE_DIR, there is $free GB."
+    echo "=== $(date '+%F %T') $TITLE, make the AppImage again" >> "$LOG"
+    PLAN="appimage"
+    [ $USE_GEARLEVER = 1 ] && PLAN="$PLAN gearlever"
+    progress_start "Making the TopSolid AppImage"
+    for s in $PLAN; do run_step "$s"; done
+    firewall_license
+    progress_stop
+    [ -n "$APPIMAGE_OUT" ] || APPIMAGE_OUT="$(cat "$DATA/appimage.path" 2>/dev/null)"
+    if [ -n "$INTEGRATED" ]; then
+        info "<big><b>The TopSolid AppImage is made again</b></big>\n\nTopSolid $VERSION is back in your app menu, with your installation and projects.$NOTES"
+    else
+        info "<big><b>The TopSolid AppImage is made again</b></big>\n\nStart TopSolid with <tt>${APPIMAGE_OUT/#$HOME/\~}</tt>.$NOTES"
+    fi
 }
 
 # A self-contained AppImage of this installation, e.g. for colleagues with the same license.
@@ -808,7 +873,7 @@ check_system()
     mkdir -p "$DATA" || fail "Cannot create $DATA."
     free=$(df -Pk "$DATA" | awk 'NR==2 {print int($4/1024/1024)}')
     # updating a TopSolid AppImage checks its own need, about three times the AppImage
-    [ $UPDATE_APPIMAGE = 1 ] || [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free, $NEED_GB GB needed."
+    [ $UPDATE_APPIMAGE = 1 ] || [ $REMAKE_APPIMAGE = 1 ] || [ "$free" -ge $NEED_GB ] || fail "Not enough disk space: $free GB free, $NEED_GB GB needed."
     command -v python3 >/dev/null || fail "python3 is needed."
     ldd --version 2>/dev/null | head -1 | awk '{v=$NF; split(v,a,"."); exit !(a[1]>2 || (a[1]==2 && a[2]>=38))}' ||
         fail "This Linux is too old: glibc 2.38 or newer is needed (Ubuntu 24.04, Debian 13, Fedora 39 or newer)."
@@ -920,6 +985,11 @@ case "${1:-}" in
         mkdir -p "$DATA"
         check_existing
         ;;
+    remake-appimage)
+        REMAKE_APPIMAGE=1
+        [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null && GUI=1
+        mkdir -p "$DATA"
+        ;;
     update-appimage)
         UPDATE_APPIMAGE=1
         [ -n "${2:-}" ] && UPDATE_FROM="$(readlink -f "$2")"
@@ -936,6 +1006,7 @@ case "${1:-}" in
     *)
         echo "usage: $0 [install --media DIR | --download DIR [--replace] [--appimage-dir DIR] [--no-spacemouse]]" >&2
         echo "       $0 update-appimage [FILE]" >&2
+        echo "       $0 remake-appimage" >&2
         exit 1 ;;
 esac
 # with Gear Lever the AppImage is made in Downloads, Gear Lever then moves it to its own folder
@@ -944,11 +1015,14 @@ esac
 
 check_system
 [ $UPDATE_APPIMAGE = 1 ] && { run_update_appimage; exit 0; }
+[ $REMAKE_APPIMAGE = 1 ] && { remake_appimage; exit 0; }
+# never go on to installing when updating or remaking stopped halfway
+{ [ $UPDATE_APPIMAGE = 1 ] || [ $REMAKE_APPIMAGE = 1 ]; } && exit 1
 echo "=== $(date '+%F %T') $TITLE, media $MEDIA, gearlever $USE_GEARLEVER, appimage $APPIMAGE_DIR" >> "$LOG"
 
-PLAN="prefix runtimes setup sqlsetup extras sql pdm finish appimage"
+PLAN="prefix runtimes setup sqlsetup extras sql pdm finish firewall appimage"
 [ $DOWNLOAD = 1 ] && PLAN="download $PLAN"
-[ "$SPACEMOUSE" = 1 ] && PLAN="${PLAN/appimage/spacemouse appimage}"
+[ "$SPACEMOUSE" = 1 ] && PLAN="${PLAN/firewall/spacemouse firewall}"
 [ $USE_GEARLEVER = 1 ] && PLAN="$PLAN gearlever"
 progress_start "Installing TopSolid"
 [ $DOWNLOAD = 1 ] && step download
@@ -961,6 +1035,7 @@ step sql
 step pdm
 step finish
 [ "$SPACEMOUSE" = 1 ] && step spacemouse
+step firewall
 step appimage
 [ $USE_GEARLEVER = 1 ] && step gearlever
 progress_stop
