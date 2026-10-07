@@ -672,7 +672,7 @@ appdir_runtime()
     cp -al "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/" 2>/dev/null || cp -a "$HERE/usr/bin" "$HERE/usr/share" "$dir/usr/"
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
-    cp "$TOOLS/unstick.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/prefix-settings.sh" "$TOOLS/userconfig.py" \
+    cp "$TOOLS/unstick.exe" "$TOOLS/guiprobe.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/prefix-settings.sh" "$TOOLS/userconfig.py" \
         "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/topsolinux-release.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"

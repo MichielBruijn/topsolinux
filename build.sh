@@ -68,6 +68,7 @@ chmod +x "$TOOLS/appimagetool.AppImage"
 
 # --- topsolinux itself ------------------------------------------------------------------------------
 x86_64-w64-mingw32-gcc -O2 -s -o "$TOOLS/unstick.exe" "$TOP/installer/tools/unstick.c"
+x86_64-w64-mingw32-gcc -O2 -s -o "$TOOLS/guiprobe.exe" "$TOP/installer/tools/guiprobe.c"
 # the managed stacks for the debug command (needs the .NET SDK; DOTNET=path/to/dotnet)
 DOTNET="${DOTNET:-$(command -v dotnet || true)}"
 if [ -n "$DOTNET" ]; then

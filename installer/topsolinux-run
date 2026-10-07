@@ -10,7 +10,7 @@
 #   scale auto        follow the desktop's scale again (the default)
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
-#   debug [PROGRAM]   write the stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
+#   debug [PROGRAM]   write the windows, focus and stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
 #   topsolinux-update update this TopSolid AppImage with the newest TopSo'Linux from GitHub, if there is one
 #   update-check on|off  whether TopSolid looks for a newer TopSo'Linux when it starts (once a day; on)
 #
@@ -327,6 +327,8 @@ debug_program()
     msg "writing the stacks of $name to $out"
     {
         echo "=== $name (pid $pid), $(date '+%F %T'), TopSo'Linux $(cat "$HERE/usr/share/doc/topsolinux/VERSION" 2>/dev/null)"
+        echo; echo "=== windows, keyboard focus and mouse capture"
+        [ -f "$HERE/usr/lib/topsolinux/guiprobe.exe" ] && "$WINE" "$HERE/usr/lib/topsolinux/guiprobe.exe" "$pid"
         echo; echo "=== managed stacks"
         if [ -f "$clr/clrstack.exe" ]; then
             # .NET doesn't load programs from Z:, so it runs from the prefix
