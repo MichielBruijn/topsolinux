@@ -343,13 +343,14 @@ debug_program()
 
 gui() { [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null; }
 
-# zenity's info, error or question; in a terminal the message, and a question counts as yes
+# zenity's info, error or question, and the message in the log; in a terminal a question counts as yes
 tell()  # info|error|question TEXT
 {
+    msg "$(printf '%b' "$2" | sed 's/<[^>]*>//g' | tr -s '\n' ' ')"
     if gui; then
-        zenity --"$1" --width=460 --title="$(app_name)" --icon="$ICON" --text="$2" 2>/dev/null
+        zenity --"$1" --width=460 --title="$(app_name)" --icon="$ICON" --text="$2" 2>/dev/null ||
+            { [ "$1" = question ] && msg "answered no"; return 1; }
     else
-        msg "$(printf '%b' "$2" | sed 's/<[^>]*>//g')"
         [ "$1" != error ]
     fi
 }
