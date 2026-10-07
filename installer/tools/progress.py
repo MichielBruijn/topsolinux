@@ -35,9 +35,10 @@ if '--check' in sys.argv:
 
 import gi
 gi.require_version('Gtk', '3.0')
+gi.require_version('Pango', '1.0')
 gi.require_version('GdkPixbuf', '2.0')
 gi.require_foreign('cairo')
-from gi.repository import GdkPixbuf, GLib, Gtk  # noqa: E402
+from gi.repository import GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
 
 FACETS = 10            # the rod is a 10-sided prism; its turning facets show the rotation
 TURN_SECONDS = 2.4     # one full turn
@@ -131,6 +132,7 @@ class Progress(Gtk.Window):
         super().__init__(title=title)
         self.set_default_size(560, -1)
         self.set_resizable(False)
+        self.set_position(Gtk.WindowPosition.CENTER)
         self.set_border_width(18)
         if icon:
             try:
@@ -153,9 +155,14 @@ class Progress(Gtk.Window):
         self.set_heading(heading)
         box.pack_start(self.head, False, False, 0)
 
-        self.text = Gtk.Label(label='Preparing...', xalign=0)
+        # always two lines high: a window that changes size is placed anew by some compositors (WSLg)
+        self.text = Gtk.Label(label='Preparing...', xalign=0, yalign=0)
         self.text.set_line_wrap(True)
+        self.text.set_width_chars(60)
         self.text.set_max_width_chars(60)
+        self.text.set_lines(2)
+        self.text.set_ellipsize(Pango.EllipsizeMode.END)
+        self.text.set_size_request(-1, self.text.create_pango_layout('X\nX').get_pixel_size()[1])
         box.pack_start(self.text, False, False, 6)
 
         self.part = Rod((0.36, 0.56, 0.82))
