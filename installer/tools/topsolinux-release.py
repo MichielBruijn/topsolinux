@@ -3,8 +3,9 @@
 
 latest            print the version, then the URLs of the installer and of SHA256SUMS, one per line
 download URL FILE download to FILE, printing the percentage done per line (for zenity --progress)
+
+The version comes from where releases/latest redirects to, not from GitHub's API and its rate limit.
 """
-import json
 import os
 import sys
 import urllib.request
@@ -12,15 +13,18 @@ import urllib.request
 REPO = 'MichielBruijn/topsolinux'
 
 
-def get(url):
-    return urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'topsolinux'}), timeout=20)
+def get(url, method='GET'):
+    return urllib.request.urlopen(
+        urllib.request.Request(url, headers={'User-Agent': 'topsolinux'}, method=method), timeout=20)
 
 
 def latest():
-    rel = json.load(get(f'https://api.github.com/repos/{REPO}/releases/latest'))
-    urls = {a['name']: a['browser_download_url'] for a in rel['assets']}
-    installer = next(u for n, u in urls.items() if n.startswith('TopSoLinux-Installer-') and n.endswith('.AppImage'))
-    print(rel['tag_name'].lstrip('v'), installer, urls['SHA256SUMS'], sep='\n')
+    with get(f'https://github.com/{REPO}/releases/latest', 'HEAD') as r:
+        tag = r.geturl().rstrip('/').rsplit('/', 1)[-1]
+    if not tag.startswith('v'):
+        sys.exit(f'no release found ({r.geturl()})')
+    base = f'https://github.com/{REPO}/releases/download/{tag}/'
+    print(tag[1:], f'{base}TopSoLinux-Installer-{tag[1:]}-x86_64.AppImage', f'{base}SHA256SUMS', sep='\n')
 
 
 def download(url, path):

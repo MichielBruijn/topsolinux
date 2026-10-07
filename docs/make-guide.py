@@ -39,12 +39,12 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#777777'))
-    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.6.16 · unofficial, not affiliated with TOPSOLID SAS")
+    canvas.drawString(20 * mm, 12 * mm, "TopSo'Linux 1.6.17 · unofficial, not affiliated with TOPSOLID SAS")
     canvas.drawRightString(190 * mm, 12 * mm, f'page {doc.page}')
     canvas.restoreState()
 
 
-APP = 'TopSolid-7.20-TopSoLinux-1.6.16-x86_64.AppImage'
+APP = 'TopSolid-7.20-TopSoLinux-1.6.17-x86_64.AppImage'
 story = [
     Paragraph(TITLE, h1),
     Paragraph('Short guide to installing and using TopSolid 7.20 with its local PDM on Linux', sub),
@@ -62,7 +62,7 @@ story = [
             'automatically.'),
 
     Paragraph('2. Installing', h2),
-    bullets('Make ' + c('TopSoLinux-Installer-1.6.16-x86_64.AppImage') + ' executable (file properties, or '
+    bullets('Make ' + c('TopSoLinux-Installer-1.6.17-x86_64.AppImage') + ' executable (file properties, or '
             + c('chmod +x') + ') and start it.',
             'Choose the installation media (found automatically in Downloads, your home folder or a USB drive), '
             'another folder, or the download from TopSolid\'s server.',
@@ -74,12 +74,12 @@ story = [
             'Wait: the whole installation takes 30 to 60 minutes. If it is interrupted, start the installer again '
             'and it continues where it stopped.'),
     Paragraph('Everything is installed in ' + c('~/.local/share/topsolinux') + '. The result is ' + c(APP) + ', a '
-              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.16.appimage') + ').', body),
+              'complete, self-contained TopSolid (Gear Lever renames it to ' + c('topsolid_7.20_topsolinux-1.6.17.appimage') + ').', body),
 
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
             '<i>Wine settings</i>, <i>Stop background services</i> and <i>Check for TopSo\'Linux updates</i>, which '
-            'updates the AppImage to the newest TopSo\'Linux.',
+            'updates the AppImage to the newest TopSo\'Linux. TopSolid also looks for one once a day when it starts.',
             'Another computer: copy the AppImage there and start it, and choose <i>Install</i> (app menu, with Gear Lever) or <i>Launch</i>. The first start sets TopSolid up in '
             + c('~/.local/share/topsolinux') + ', which takes a few minutes. Each computer needs its own license.',
             'Only use it on computers you are licensed for, and do not publish it: it contains TopSolid, SQL Server '
