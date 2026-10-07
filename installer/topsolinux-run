@@ -11,6 +11,7 @@
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
 #   debug [PROGRAM]   write the stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
+#   topsolinux-update update this TopSolid AppImage with the newest TopSo'Linux from GitHub, if there is one
 #
 # environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_SCALE=PERCENT (same as scale),
 #              TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
@@ -74,7 +75,7 @@ offer_install()
     grep -qsF "$APPIMAGE" "$HOME/.local/share/applications/"*.desktop && return 1
     app="$(app_name)"
     zenity --question --width=480 --title="$app" --icon="$ICON" --ok-label=Install --cancel-label=Launch \
-        --text="<b>Install</b> puts TopSolid in your app menu with Gear Lever (installed too when missing; installing Flatpak asks for your password) and starts it. Right-click its icon there for TopSolid'Update, the license tool, Wine settings and stopping the background services.\n\n<b>Launch</b> only starts TopSolid.\n\n<small>TopSo'Linux $TSL_VERSION</small>" 2>/dev/null
+        --text="<b>Install</b> puts TopSolid in your app menu with Gear Lever (installed too when missing; installing Flatpak asks for your password) and starts it. Right-click its icon there for TopSolid'Update, the license tool, Wine settings, stopping the background services and TopSo'Linux updates.\n\n<b>Launch</b> only starts TopSolid.\n\n<small>TopSo'Linux $TSL_VERSION</small>" 2>/dev/null
 }
 
 install_appimage()
@@ -340,6 +341,58 @@ debug_program()
     msg "done: $out"
 }
 
+gui() { [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null; }
+
+# zenity's info, error or question; in a terminal the message, and a question counts as yes
+tell()  # info|error|question TEXT
+{
+    if gui; then
+        zenity --"$1" --width=460 --title="$(app_name)" --icon="$ICON" --text="$2" 2>/dev/null
+    else
+        msg "$(printf '%b' "$2" | sed 's/<[^>]*>//g')"
+        [ "$1" != error ]
+    fi
+}
+
+# The newest installer from GitHub, checked against its SHA256SUMS, updates this TopSolid AppImage
+topsolinux_update()
+{
+    local release="$TOOLS/topsolinux-release.py" info latest url sums dir inst
+    [ -f "${APPIMAGE:-}" ] || { tell error "Only a TopSolid AppImage can update itself."; return 1; }
+    info="$(python3 -I "$release" latest 2>>"$LOG")" ||
+        { tell error "Looking for TopSo'Linux updates on GitHub failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1; }
+    { read -r latest; read -r url; read -r sums; } <<< "$info"
+    if [ "$(printf '%s\n' "$latest" "$TSL_VERSION" | sort -V | tail -1)" = "$TSL_VERSION" ]; then
+        tell info "TopSo'Linux $TSL_VERSION is the newest version."
+        return 0
+    fi
+    tell question "<big><b>TopSo'Linux $latest is available</b></big>\n\nThis TopSolid has $TSL_VERSION. Download the new installer and update this TopSolid AppImage with it? Your installation and projects stay.\n\n<a href=\"https://github.com/MichielBruijn/topsolinux/releases/tag/v$latest\">What's new</a>" ||
+        return 0
+    dir="$(xdg-user-dir DOWNLOAD 2>/dev/null)"
+    [ -d "$dir" ] && [ "$dir" != "$HOME" ] || dir="$HOME/Downloads"
+    mkdir -p "$dir"
+    inst="$dir/${url##*/}"
+    msg "downloading $url"
+    python3 -I "$release" download "$sums" "$inst.sha256" 2>>"$LOG" >/dev/null &&
+        python3 -I "$release" download "$url" "$inst" 2>>"$LOG" |
+        if gui; then zenity --progress --auto-close --width=460 --title="$(app_name)" --icon="$ICON" \
+            --text="Downloading TopSo'Linux $latest..." 2>/dev/null; else cat >/dev/null; fi
+    if [ "${PIPESTATUS[0]}" != 0 ] || [ ! -f "$inst" ]; then
+        rm -f "$inst.part" "$inst.sha256"
+        tell error "Downloading TopSo'Linux $latest failed or was cancelled."
+        return 1
+    fi
+    if ! (cd "$dir" && grep -F " ${inst##*/}" "$inst.sha256" | sha256sum -c --status); then
+        rm -f "$inst" "$inst.sha256"
+        tell error "The downloaded installer doesn't match its checksum, nothing was changed."
+        return 1
+    fi
+    rm -f "$inst.sha256"
+    chmod +x "$inst"
+    msg "updating $APPIMAGE with $inst"
+    exec "$inst" update-appimage "$APPIMAGE"
+}
+
 stop_services()
 {
     local svc
@@ -378,6 +431,8 @@ INSTALL=0
 case "${1:-}" in ""|update|license-tool) splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
 [ $INSTALL = 1 ] && { install_appimage; splash "# Starting Wine..."; }
 fix_appimage_name
+command -v add_update_actions >/dev/null && [ -f "${APPIMAGE:-}" ] && add_update_actions "$APPIMAGE"
+[ "${1:-}" = topsolinux-update ] && { topsolinux_update; exit; }
 
 # Wine's NTLM uses Samba's ntlm_auth (the PDM logs in to SQL Server with it); prefer the system's
 ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"

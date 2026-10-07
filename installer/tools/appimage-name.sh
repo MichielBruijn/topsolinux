@@ -29,6 +29,30 @@ retarget_desktop_files()  # OLD NEW
         -e "s/^file_path = $o\$/file_path = $n/" "$f"
 }
 
+# DESKTOPFILE gets the action "Check for TopSo'Linux updates", which runs COMMAND topsolinux-update;
+# app menu entries made before TopSo'Linux 1.6.15 don't have it
+add_update_action()  # DESKTOPFILE COMMAND
+{
+    local icon
+    grep -qs '^\[Desktop Action topsolinux\]' "$1" && return 0
+    grep -qs '^Actions=' "$1" || return 0
+    icon="$(sed -n '/^\[Desktop Action /q; s/^Icon=//p' "$1" | head -1)"
+    sed -i 's/^Actions=\(.*[^;]\);*$/Actions=\1;topsolinux;/' "$1"
+    {
+        printf "\n[Desktop Action topsolinux]\nName=Check for TopSo'Linux updates\n"
+        [ -n "$icon" ] && printf 'Icon=%s\n' "$icon"
+        printf 'Exec=%s topsolinux-update\n' "$2"
+    } >> "$1"
+}
+
+# the app menu entries that start APPIMAGE
+add_update_actions()  # APPIMAGE
+{
+    local f
+    grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop |
+        while IFS= read -r -d '' f; do add_update_action "$f" "$1"; done
+}
+
 # the command that installs a distribution package, run as root
 package_install_command()
 {
