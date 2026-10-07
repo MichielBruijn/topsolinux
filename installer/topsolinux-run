@@ -12,8 +12,10 @@
 #   stop              stop all background services (SQL Server, PDM, license server)
 #   debug [PROGRAM]   write the stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
 #   topsolinux-update update this TopSolid AppImage with the newest TopSo'Linux from GitHub, if there is one
+#   update-check on|off  whether TopSolid looks for a newer TopSo'Linux when it starts (once a day; on)
 #
 # environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_SCALE=PERCENT (same as scale),
+#              TOPSOLINUX_UPDATE_CHECK=0 (no update check at start),
 #              TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
 # This script is used both inside a TopSolid AppImage (the prefix is then in $HERE/prefix and
@@ -355,32 +357,47 @@ tell()  # info|error|question TEXT
     fi
 }
 
-# The newest installer from GitHub, checked against its SHA256SUMS, updates this TopSolid AppImage
+# the newest release on GitHub: sets LATEST, LATEST_URL and LATEST_SUMS; fails when it can't be found
+find_latest()  # [TIMEOUT]
+{
+    local info
+    info="$(timeout "${1:-60}" python3 -I "$TOOLS/topsolinux-release.py" latest 2>>"$LOG")" || return 1
+    { read -r LATEST; read -r LATEST_URL; read -r LATEST_SUMS; } <<< "$info"
+    [ -n "$LATEST" ]
+}
+
+newer() { [ "$(printf '%s\n' "$1" "$TSL_VERSION" | sort -V | tail -1)" != "$TSL_VERSION" ]; }
+
+# Check for TopSo'Linux updates (app menu): ask, then update
 topsolinux_update()
 {
-    local release="$TOOLS/topsolinux-release.py" info latest url sums dir inst
     [ -f "${APPIMAGE:-}" ] || { tell error "Only a TopSolid AppImage can update itself."; return 1; }
-    info="$(python3 -I "$release" latest 2>>"$LOG")" ||
-        { tell error "Looking for TopSo'Linux updates on GitHub failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1; }
-    { read -r latest; read -r url; read -r sums; } <<< "$info"
-    if [ "$(printf '%s\n' "$latest" "$TSL_VERSION" | sort -V | tail -1)" = "$TSL_VERSION" ]; then
+    find_latest || { tell error "Looking for TopSo'Linux updates on GitHub failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1; }
+    if ! newer "$LATEST"; then
         tell info "TopSo'Linux $TSL_VERSION is the newest version."
         return 0
     fi
-    tell question "<big><b>TopSo'Linux $latest is available</b></big>\n\nThis TopSolid has $TSL_VERSION. Download the new installer and update this TopSolid AppImage with it? Your installation and projects stay.\n\n<a href=\"https://github.com/MichielBruijn/topsolinux/releases/tag/v$latest\">What's new</a>" ||
+    tell question "<big><b>TopSo'Linux $LATEST is available</b></big>\n\nThis TopSolid has $TSL_VERSION. Download the new installer and update this TopSolid AppImage with it? Your installation and projects stay.\n\n<a href=\"https://github.com/MichielBruijn/topsolinux/releases/tag/v$LATEST\">What's new</a>" ||
         return 0
+    install_latest
+}
+
+# The installer of LATEST from GitHub, checked against its SHA256SUMS, updates this TopSolid AppImage
+install_latest()
+{
+    local release="$TOOLS/topsolinux-release.py" dir inst
     dir="$(xdg-user-dir DOWNLOAD 2>/dev/null)"
     [ -d "$dir" ] && [ "$dir" != "$HOME" ] || dir="$HOME/Downloads"
     mkdir -p "$dir"
-    inst="$dir/${url##*/}"
-    msg "downloading $url"
-    python3 -I "$release" download "$sums" "$inst.sha256" 2>>"$LOG" >/dev/null &&
-        python3 -I "$release" download "$url" "$inst" 2>>"$LOG" |
+    inst="$dir/${LATEST_URL##*/}"
+    msg "downloading $LATEST_URL"
+    python3 -I "$release" download "$LATEST_SUMS" "$inst.sha256" 2>>"$LOG" >/dev/null &&
+        python3 -I "$release" download "$LATEST_URL" "$inst" 2>>"$LOG" |
         if gui; then zenity --progress --auto-close --width=460 --title="$(app_name)" --icon="$ICON" \
-            --text="Downloading TopSo'Linux $latest..." 2>/dev/null; else cat >/dev/null; fi
+            --text="Downloading TopSo'Linux $LATEST..." 2>/dev/null; else cat >/dev/null; fi
     if [ "${PIPESTATUS[0]}" != 0 ] || [ ! -f "$inst" ]; then
         rm -f "$inst.part" "$inst.sha256"
-        tell error "Downloading TopSo'Linux $latest failed or was cancelled."
+        tell error "Downloading TopSo'Linux $LATEST failed or was cancelled."
         return 1
     fi
     if ! (cd "$dir" && grep -F " ${inst##*/}" "$inst.sha256" | sha256sum -c --status); then
@@ -392,6 +409,31 @@ topsolinux_update()
     chmod +x "$inst"
     msg "updating $APPIMAGE with $inst"
     exec "$inst" update-appimage "$APPIMAGE"
+}
+
+# At most once a day, in the background while TopSolid starts: offer a newer TopSo'Linux. Off with
+# TOPSOLINUX_UPDATE_CHECK=0 or the command update-check off; no network means no question
+UPDATE_CHECK=""
+start_update_check()
+{
+    local stamp="$DATA/.update-check"
+    [ "${TOPSOLINUX_UPDATE_CHECK:-1}" != 0 ] && [ "$(cat "$DATA/update-check" 2>/dev/null)" != off ] &&
+        [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ] && gui || return 0
+    [ -n "$(find "$stamp" -mmin -1440 2>/dev/null)" ] && return 0
+    (
+        # after TopSolid's own splash
+        sleep 30
+        find_latest 15 || exit 0
+        touch "$stamp"
+        newer "$LATEST" && [ "$(cat "$DATA/.update-skip" 2>/dev/null)" != "$LATEST" ] || exit 0
+        msg "TopSo'Linux $LATEST is available"
+        answer="$(zenity --question --width=480 --title="$(app_name)" --icon="$ICON" \
+            --ok-label="Update now" --cancel-label="Later" --extra-button="Skip this version" \
+            --text="<big><b>TopSo'Linux $LATEST is available</b></big>\n\nThis TopSolid has $TSL_VERSION. <b>Update now</b> downloads the new installer and updates the TopSolid AppImage with it; a running TopSolid keeps this version until you close it. Your installation and projects stay.\n\n<a href=\"https://github.com/MichielBruijn/topsolinux/releases/tag/v$LATEST\">What's new</a>\n\n<small>Turn this check off with the command <tt>update-check off</tt>.</small>" 2>/dev/null)" &&
+            install_latest
+        [ "$answer" = "Skip this version" ] && echo "$LATEST" > "$DATA/.update-skip" && msg "skipping $LATEST"
+    ) &
+    UPDATE_CHECK=$!
 }
 
 stop_services()
@@ -433,7 +475,17 @@ case "${1:-}" in ""|update|license-tool) splash_start "Starting Wine..."; trap s
 [ $INSTALL = 1 ] && { install_appimage; splash "# Starting Wine..."; }
 fix_appimage_name
 command -v add_update_actions >/dev/null && [ -f "${APPIMAGE:-}" ] && add_update_actions "$APPIMAGE"
-[ "${1:-}" = topsolinux-update ] && { topsolinux_update; exit; }
+case "${1:-}" in
+    topsolinux-update) topsolinux_update; exit ;;
+    update-check)
+        case "${2:-}" in
+            off) echo off > "$DATA/update-check"; msg "no more checks for TopSo'Linux updates at start" ;;
+            on)  rm -f "$DATA/update-check" "$DATA/.update-check" "$DATA/.update-skip"
+                 msg "TopSolid checks for TopSo'Linux updates at start again (once a day)" ;;
+            *)   msg "usage: $0 update-check on|off"; exit 1 ;;
+        esac
+        exit ;;
+esac
 
 # Wine's NTLM uses Samba's ntlm_auth (the PDM logs in to SQL Server with it); prefer the system's
 ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"
@@ -450,7 +502,11 @@ setup_crash_dumps
 
 case "${1:-}" in
     "")           apply_scale; apply_formats; wait_for_pdm; start_unstick
-                  splash "# Starting TopSolid..."; splash "watch topsolid.exe"; run "$TOPSOLID\\TopSolid.exe" ;;
+                  splash "# Starting TopSolid..."; splash "watch topsolid.exe"; start_update_check
+                  run "$TOPSOLID\\TopSolid.exe"; ret=$?
+                  # a question about an update that is still open, or the update itself
+                  [ -n "$UPDATE_CHECK" ] && wait "$UPDATE_CHECK"
+                  exit $ret ;;
     update)       apply_scale; apply_formats; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
                   run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
     license-tool) apply_scale; apply_formats; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"

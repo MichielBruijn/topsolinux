@@ -41,8 +41,8 @@ Briefly tested, with care:
 
 ## Installing
 
-1. Download `TopSoLinux-Installer-1.6.16-x86_64.AppImage` from the [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.16-x86_64.AppImage`) and start it.
+1. Download `TopSoLinux-Installer-1.6.17-x86_64.AppImage` from the [releases](../../releases).
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.17-x86_64.AppImage`) and start it.
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
@@ -55,17 +55,17 @@ Briefly tested, with care:
    it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
-The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.16-x86_64.AppImage`; its name shows the
+The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.17-x86_64.AppImage`; its name shows the
 TopSo'Linux version that made it). Gear Lever moves it to its own folder as
-`topsolid_7.20_topsolinux-1.6.16.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
+`topsolid_7.20_topsolinux-1.6.17.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
 Gear Lever names an AppImage after the app when you add it yourself; the first start puts the version back.
 
 Without a desktop, or to script it:
 
 ```
-./TopSoLinux-Installer-1.6.16-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+./TopSoLinux-Installer-1.6.17-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
     [--replace] [--appimage-dir ~/Applications] [--no-spacemouse]
-./TopSoLinux-Installer-1.6.16-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.6.17-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again. For an existing
@@ -82,8 +82,10 @@ which is installed too when missing) or only **Launch** it. The first start sets
 Only use it on computers you are licensed for, and **do not publish it**: it contains TopSolid, SQL Server
 Express and Microsoft's runtimes.
 
-**Updating TopSo'Linux:** right-click TopSolid's icon and choose *Check for TopSo'Linux updates*: it
-downloads the newest installer from the releases and updates the AppImage with it. Or start a newer
+**Updating TopSo'Linux:** once a day, when TopSolid starts, it looks for a newer TopSo'Linux in the
+background and offers it (*Update now*, *Later* or *Skip this version*; off with `update-check off`). Or
+right-click TopSolid's icon and choose *Check for TopSo'Linux updates*. Either way it downloads the newest
+installer from the releases, checks it against `SHA256SUMS` and updates the AppImage with it. Or start a newer
 installer and choose *Update the AppImage* (or run `./TopSoLinux-Installer-…AppImage update-appimage [FILE]`).
 The TopSolid AppImage gets the newer Wine and
 starter, and the new TopSo'Linux version in its name; your installation and projects stay, and so does the
@@ -118,6 +120,7 @@ Right-click TopSolid's icon in the app menu for TopSolid'Update, the license too
 | `scale auto` | follow the desktop's scale again (the default) |
 | `stop` | stop SQL Server, the PDM and the license server |
 | `topsolinux-update` | update this AppImage to the newest TopSo'Linux release, if there is one |
+| `update-check off` | don't look for TopSo'Linux updates at start (`on`: once a day again, the default) |
 | `debug` | TopSolid hangs: write its stacks to `~/topsolid-debug-….txt` for a bug report (stops nothing) |
 | `winecfg`, `regedit`, `shell` | Wine tools, for troubleshooting |
 
