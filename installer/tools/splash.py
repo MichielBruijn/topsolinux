@@ -66,7 +66,8 @@ class Image(ctypes.Structure):
 
 
 class Windows:
-    """The windows shown on the X11 display (_NET_CLIENT_LIST)."""
+    """The windows shown on the X11 display: _NET_CLIENT_LIST, or the window tree where the window manager
+    doesn't keep that list (WSLg's Weston)."""
 
     class ClassHint(ctypes.Structure):
         # raw pointers: Xlib allocated them and XFree must get them back
@@ -88,6 +89,9 @@ class Windows:
                                          ctypes.POINTER(ctypes.c_void_p)]
         x.XGetClassHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(self.ClassHint)]
         x.XFree.argtypes = [ctypes.c_void_p]
+        x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                 ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                                 ctypes.POINTER(ctypes.c_uint)]
         x.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(Attributes)]
         x.XGetImage.restype = ctypes.POINTER(Image)
         x.XGetImage.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
@@ -110,43 +114,66 @@ class Windows:
             return False
         if a.depth != 32:
             return True
+        looked = False
         for y in (a.height // 3, a.height // 2, a.height * 2 // 3):
             img = x.XGetImage(self.dpy, window, 0, y, a.width, 1, 0xffffffff, 2)  # ZPixmap
             if not img:
                 continue
+            looked = True
             row = ctypes.string_at(img.contents.data, img.contents.bytes_per_line)
             x.XFree(img.contents.data)
             x.XFree(img)
             if row.strip(b'\0'):
                 return True
-        return False
+        # a window that can't be read counts as shown
+        return not looked
 
     def shown(self, wm_class):
         """Whether a window of this class is on the screen and shows something."""
         return any(self.painted(w) for w in self.windows(wm_class))
 
     def windows(self, wm_class):
+        found = []
+        for w in self.client_list() or self.tree():
+            hint = self.ClassHint()
+            if self.x.XGetClassHint(self.dpy, w, ctypes.byref(hint)):
+                names = set()
+                for p in (hint.res_name, hint.res_class):
+                    if p:
+                        names.add(ctypes.string_at(p).decode(errors='replace').lower())
+                        self.x.XFree(p)
+                if wm_class in names:
+                    found.append(w)
+        return found
+
+    def client_list(self):
         x = self.x
         typ, fmt, n, after, prop = ctypes.c_ulong(), ctypes.c_int(), ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p()
         # 33 = XA_WINDOW
         if x.XGetWindowProperty(self.dpy, self.root, self.clients, 0, 65536, 0, 33, ctypes.byref(typ),
                                 ctypes.byref(fmt), ctypes.byref(n), ctypes.byref(after), ctypes.byref(prop)) != 0:
             return []
-        found = []
+        windows = []
         if prop.value:
-            windows = ctypes.cast(prop, ctypes.POINTER(ctypes.c_ulong))
-            for i in range(n.value):
-                hint = self.ClassHint()
-                if x.XGetClassHint(self.dpy, windows[i], ctypes.byref(hint)):
-                    names = set()
-                    for p in (hint.res_name, hint.res_class):
-                        if p:
-                            names.add(ctypes.string_at(p).decode(errors='replace').lower())
-                            x.XFree(p)
-                    if wm_class in names:
-                        found.append(windows[i])
+            windows = list(ctypes.cast(prop, ctypes.POINTER(ctypes.c_ulong))[:n.value])
             x.XFree(prop)
-        return found
+        return windows
+
+    def children(self, window):
+        root, parent, kids, n = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p(), ctypes.c_uint()
+        if not self.x.XQueryTree(self.dpy, window, ctypes.byref(root), ctypes.byref(parent), ctypes.byref(kids),
+                                 ctypes.byref(n)):
+            return []
+        windows = []
+        if kids.value:
+            windows = list(ctypes.cast(kids, ctypes.POINTER(ctypes.c_ulong))[:n.value])
+            self.x.XFree(kids)
+        return windows
+
+    def tree(self):
+        """The top-level windows, and those inside a window manager's frames."""
+        top = self.children(self.root)
+        return top + [w for t in top for w in self.children(t)]
 
 
 class Watcher:
