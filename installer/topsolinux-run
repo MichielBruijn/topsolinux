@@ -359,6 +359,46 @@ tell()  # info|error|question TEXT
     fi
 }
 
+# Sentinel HL protection keys (USB vendor 0529): under Wine, Sentinel LDK doesn't open the key itself
+# but asks the License Manager on localhost:1947. That is Thales' Run-time Environment for Linux
+# (aksusbd, hasplmd); Thales offers it only behind a login, so it comes from a mirror, checked here.
+SENTINEL_URL=https://download.gaisler.com/products/hasp/bin
+SENTINEL_DEB="Sentinel_LDK_Ubuntu_DEB_Run-time_Installer cd24e3d4625559e572a427268286f23129c319dc32ada472abd58c4e7f38e55f"
+SENTINEL_RPM="Sentinel_LDK_RedHat_and_SuSE_RPM_Run-time_Installer c00e323a24a06a431c9c62b93ade74887911060454a455bda4d39c69a49aafb9"
+sentinel_runtime()
+{
+    local keys k name sum pattern install tmp file triggers=""
+    keys="$(grep -lx 0529 /sys/bus/usb/devices/*/idVendor 2>/dev/null)"
+    [ -n "$keys" ] && [ ! -x /usr/sbin/hasplmd ] && [ ! -f "$DATA/.sentinel-skip" ] || return 0
+    if command -v dpkg >/dev/null; then read -r name sum <<< "$SENTINEL_DEB"; pattern='*_amd64.deb'; install='dpkg -i'
+    elif command -v rpm >/dev/null; then read -r name sum <<< "$SENTINEL_RPM"; pattern='*.x86_64.rpm'; install='rpm -U'
+    fi
+    if [ -z "${name:-}" ] || ! command -v pkexec >/dev/null; then
+        tell info "<b>Protection key found</b>\n\nTopSolid uses it through the Sentinel LDK Run-time Environment for Linux. Install it from Thales (aksusbd), then unplug the key and plug it in again."
+        return 0
+    fi
+    if ! tell question "<b>Protection key found</b>\n\nTopSolid uses it through the Sentinel LDK Run-time Environment for Linux of Thales. Install it now? This is done once and asks for your password."; then
+        touch "$DATA/.sentinel-skip"
+        return 0
+    fi
+    tmp="$(mktemp -d)"
+    python3 -I "$TOOLS/topsolinux-release.py" download "$SENTINEL_URL/$name.tar.gz" "$tmp/rte.tar.gz" 2>>"$LOG" |
+        if gui; then zenity --progress --auto-close --width=460 --title="$(app_name)" --icon="$ICON" \
+            --text="Downloading the Sentinel Run-time Environment..." 2>/dev/null; else cat >/dev/null; fi
+    if [ "${PIPESTATUS[0]}" = 0 ] && echo "$sum  $tmp/rte.tar.gz" | sha256sum -c --status &&
+        tar -xzf "$tmp/rte.tar.gz" -C "$tmp" --wildcards "$name/$pattern" 2>>"$LOG"; then
+        file="$(ls "$tmp/$name"/$pattern | head -1)"
+        # a key that was already plugged in is only seen after udev adds it again
+        for k in $keys; do triggers="$triggers ${k%/idVendor}"; done
+        pkexec sh -c "$install '$file' && udevadm trigger --action=add --settle$triggers" >> "$LOG" 2>&1 &&
+            msg "Sentinel Run-time Environment installed"
+    fi
+    rm -rf "$tmp"
+    [ -x /usr/sbin/hasplmd ] && return 0
+    tell error "Installing the Sentinel Run-time Environment failed (see ${LOG/#$HOME/\~}). TopSolid starts without the protection key."
+    return 0
+}
+
 # the newest release on GitHub: sets LATEST, LATEST_URL and LATEST_SUMS; fails when it can't be found
 find_latest()  # [TIMEOUT]
 {
@@ -473,7 +513,7 @@ echo "=== $(date '+%F %T') $0 ${*:-}" >&2
 
 INSTALL=0
 [ -z "${1:-}" ] && offer_install && INSTALL=1
-case "${1:-}" in ""|update|license-tool) splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
+case "${1:-}" in ""|update|license-tool) sentinel_runtime; splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
 [ $INSTALL = 1 ] && { install_appimage; splash "# Starting Wine..."; }
 fix_appimage_name
 command -v add_update_actions >/dev/null && [ -f "${APPIMAGE:-}" ] && add_update_actions "$APPIMAGE"

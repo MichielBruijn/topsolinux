@@ -154,6 +154,15 @@ a replacement for 3Dconnexion's navigation library that talks to spacenavd, so n
 needed. Axis directions and speeds are in the registry (`regedit`,
 `HKEY_CURRENT_USER\Software\Wine\TDxNavLib`): `AxisSigns`, `AxisMap`, `TranslationSpeed`, `RotationSpeed`.
 
+### Protection key (dongle)
+
+Under Wine, Sentinel LDK doesn't open a Sentinel HL USB key itself but asks Thales' License Manager on
+`localhost:1947`. When TopSolid starts with a key plugged in and that License Manager is missing, it offers
+to install the Sentinel LDK Run-time Environment for Linux (`aksusbd`, asks for your password once). The
+package comes from a mirror and is checked against a fixed checksum. Check the key at
+<http://localhost:1947> (Sentinel Keys). Answered no? Delete `~/.local/share/topsolinux/.sentinel-skip`
+to be asked again. Remove the runtime with `sudo apt remove aksusbd`.
+
 ## Troubleshooting
 
 - Logs: `~/.local/share/topsolinux/install.log` (installation) and `topsolid.log` (TopSolid).
