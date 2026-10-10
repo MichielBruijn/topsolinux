@@ -17,7 +17,8 @@ license server and a few dozen Wine bugs.
 - **Ubuntu 26.04**, fresh installation (virtual machine): media downloaded from TopSolid's server, Gear Lever.
 - **Ubuntu 26.04, upgraded from 24.04**, a daily-driver laptop (NVIDIA + Intel) with an external 4K monitor:
   installation from local media, updated to SP6 with TopSolid'Update, and a real project packaged in an
-  existing TopSolid installation and imported.
+  existing TopSolid installation and imported. Also with a **fixed license on a Sentinel HL USB key**:
+  TopSolid starts with it, check-out and check-in work.
 
 Both with TopSolid 7.20.400.128 (from media 7.20.400.0 RTM).
 

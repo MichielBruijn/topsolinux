@@ -86,7 +86,9 @@ story = [
             'Express and Microsoft\'s runtimes.'),
 
     Paragraph('4. First start', h2),
-    bullets('License: as on Windows.',
+    bullets('License: as on Windows. A fixed license on a Sentinel USB protection key works too: on the first '
+            'start with the key plugged in, TopSo\'Linux offers to install Thales\' Sentinel runtime (asks for your '
+            'password once).',
             'PDM connection: choose <b>Local PDM Server</b> and leave user and password empty.',
             'Libraries: import the ones you need from TopSolid.',
             'New Project: enter a name, choose Blank Template and click the green check mark.'),
