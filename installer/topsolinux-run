@@ -8,6 +8,7 @@
 #   license-tool      start the TopSolid license tool
 #   scale PERCENT     size of text and icons, e.g. 150 (kept until changed; 100 = normal)
 #   scale auto        follow the desktop's scale again (the default)
+#   spacemouse        SpaceMouse speeds and axes (works right away, also while TopSolid runs)
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
 #   debug [PROGRAM]   write the windows, focus and stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
@@ -560,6 +561,9 @@ case "${1:-}" in
     scale)        if [ "${2:-}" = auto ]; then rm -f "$DATA/scale" "$DATA/.auto-dpi"; apply_scale; msg "scale follows the desktop again"
                   else set_scale "${2:-}"; echo "$2" > "$DATA/scale"; msg "scale set to $2%, used from the next start of TopSolid"; fi
                   topsolid_running || "$WINESERVER" -w ;;
+    # without GTK 3 the settings are in regedit, HKEY_CURRENT_USER\Software\Wine\TDxNavLib
+    spacemouse)   python3 "$TOOLS/spacemouse.py" 2>>"$LOG"
+                  [ $? = 2 ] && { apply_scale; apply_formats; run regedit; } ;;
     winecfg|regedit) apply_scale; apply_formats; run "$1" ;;
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;

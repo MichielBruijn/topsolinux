@@ -639,7 +639,7 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
-Actions=update;license;winecfg;stop;topsolinux;
+Actions=update;license;spacemouse;winecfg;stop;topsolinux;
 
 [Desktop Action update]
 Name=TopSolid'Update
@@ -648,6 +648,10 @@ Exec=AppRun update
 [Desktop Action license]
 Name=TopSolid license
 Exec=AppRun license-tool
+
+[Desktop Action spacemouse]
+Name=SpaceMouse settings
+Exec=AppRun spacemouse
 
 [Desktop Action winecfg]
 Name=Wine settings (screen scaling, ...)
@@ -673,7 +677,7 @@ appdir_runtime()
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
     cp "$TOOLS/unstick.exe" "$TOOLS/guiprobe.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" "$TOOLS/prefix-settings.sh" "$TOOLS/userconfig.py" \
-        "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/topsolinux-release.py" "$dir/usr/lib/topsolinux/"
+        "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/spacemouse.py" "$TOOLS/topsolinux-release.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"
     cp "$HERE/topsolinux-run" "$dir/AppRun"
@@ -731,6 +735,8 @@ update_appimage()  # FILE
         rm -f "$old"
     fi
     echo "$new" > "$DATA/appimage.path"
+    # the app menu entry gets the right-click actions this version added
+    add_update_actions "$new"
     UPDATED="$new"
 }
 

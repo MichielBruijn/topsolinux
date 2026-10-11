@@ -117,8 +117,8 @@ options if you want it.
 
 ## Everyday use
 
-Right-click TopSolid's icon in the app menu for TopSolid'Update, the license tool, Wine settings,
-*Stop background services* and *Check for TopSo'Linux updates*. The AppImage also accepts commands:
+Right-click TopSolid's icon in the app menu for TopSolid'Update, the license tool, *SpaceMouse settings*,
+Wine settings, *Stop background services* and *Check for TopSo'Linux updates*. The AppImage also accepts commands:
 
 | Command | |
 |---|---|
@@ -128,6 +128,7 @@ Right-click TopSolid's icon in the app menu for TopSolid'Update, the license too
 | `license-tool` | TopSolid's license tool |
 | `scale 150` | text and icons at 150% (100 = normal), kept until changed |
 | `scale auto` | follow the desktop's scale again (the default) |
+| `spacemouse` | SpaceMouse speeds and axes |
 | `stop` | stop SQL Server, the PDM and the license server |
 | `topsolinux-update` | update this AppImage to the newest TopSo'Linux release, if there is one |
 | `update-check off` | don't look for TopSo'Linux updates at start (`on`: once a day again, the default) |
@@ -152,8 +153,10 @@ Resize a window: hold Super and drag with the middle mouse button, or press Alt+
 The installer installs and starts [spacenavd](https://spacenav.sourceforge.net) (or do it yourself:
 `sudo apt install spacenavd`). TopSo'Linux includes
 a replacement for 3Dconnexion's navigation library that talks to spacenavd, so no 3Dconnexion driver is
-needed. Axis directions and speeds are in the registry (`regedit`,
-`HKEY_CURRENT_USER\Software\Wine\TDxNavLib`): `AxisSigns`, `AxisMap`, `TranslationSpeed`, `RotationSpeed`.
+needed. Right-click TopSolid's icon and choose *SpaceMouse settings* for the speeds and for which SpaceMouse
+axis pans, zooms and rotates, and in which direction; bars show what TopSolid gets while you move the cap.
+Changes work right away, also in a TopSolid that is open. The settings are in the registry
+(`HKEY_CURRENT_USER\Software\Wine\TDxNavLib`: `AxisSigns`, `AxisMap`, `TranslationSpeed`, `RotationSpeed`).
 
 ### Protection key (dongle)
 
