@@ -482,10 +482,13 @@ start_update_check()
 stop_services()
 {
     local svc
+    # held until this script exits, a start waits for it (see below)
+    exec 9>"$DATA/.stop.lock"
+    flock 9
     for svc in "$PDM_SERVICE" 'MSSQL$SQLTOPSOLID' "Sentinel RMS License Manager"; do
-        "$WINE" net stop "$svc" >/dev/null 2>&1
+        "$WINE" net stop "$svc" >/dev/null 2>&1 9>&-
     done
-    "$WINESERVER" -k
+    "$WINESERVER" -k 9>&-
 }
 
 topsolid_running()
@@ -510,6 +513,8 @@ run()
 
 mkdir -p "$DATA"
 exec 2> >(tee -a "$LOG" >&2)
+# stopping the services ends with wineserver -k: wait for a stop in progress, or it kills what starts now
+[ "${1:-}" = stop ] || flock -w 120 "$DATA/.stop.lock" true 2>/dev/null
 echo "=== $(date '+%F %T') $0 ${*:-}" >&2
 
 INSTALL=0
