@@ -64,9 +64,9 @@ Gear Lever names an AppImage after the app when you add it yourself; the first s
 Without a desktop, or to script it:
 
 ```
-./TopSoLinux-Installer-1.6.19-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
+./TopSoLinux-Installer-1.6.20-x86_64.AppImage install --media ~/Downloads/7.20.400.0_RTM \
     [--replace] [--appimage-dir ~/Applications] [--no-spacemouse]
-./TopSoLinux-Installer-1.6.19-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
+./TopSoLinux-Installer-1.6.20-x86_64.AppImage install --download ~/Downloads/TopSolid   # download the media first
 ```
 
 An interrupted installation continues where it stopped when you start the installer again. For an existing
