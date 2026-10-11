@@ -1,0 +1,58 @@
+From ae6dd303477ce91b526f276ff873cebf95b52a6e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 11 Oct 2026 23:09:06 +0200
+Subject: [PATCH 65/68] winex11.drv: Don't manage overlay windows.
+
+A click-through popup that can't be activated (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE), like
+the window TopSolid draws its splitter and docking feedback on, isn't an application
+window. Managed, Mutter animated it when it appeared and made it fullscreen, as it covers
+the screen.
+---
+ dlls/winex11.drv/window.c | 4 +++-
+ dlls/winex11.drv/x11drv.h | 8 ++++++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 69df0b7a2ba..926e09d3952 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -444,6 +444,9 @@ static BOOL is_window_managed( HWND hwnd, UINT swp_flags, BOOL fullscreen )
+     /* child windows are not managed */
+     style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
+     if ((style & (WS_CHILD|WS_POPUP)) == WS_CHILD) return FALSE;
++    /* overlays are not managed */
++    ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE );
++    if (is_overlay_window( style, ex_style )) return FALSE;
+     /* activated windows are managed */
+     if (!(swp_flags & (SWP_NOACTIVATE|SWP_HIDEWINDOW))) return TRUE;
+     if (hwnd == get_active_window()) return TRUE;
+@@ -459,7 +462,6 @@ static BOOL is_window_managed( HWND hwnd, UINT swp_flags, BOOL fullscreen )
+         if (fullscreen) return TRUE;
+     }
+     /* application windows are managed */
+-    ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE );
+     if (ex_style & WS_EX_APPWINDOW) return TRUE;
+     /* windows that own popups are managed */
+     if (has_owned_popups( hwnd )) return TRUE;
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index fb5d680de8b..7c5eae09a20 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -754,6 +754,14 @@ extern void detach_client_window( struct x11drv_win_data *data, Window client_wi
+ extern void attach_client_window( struct x11drv_win_data *data, Window client_window );
+ extern void destroy_client_window( HWND hwnd, Window client_window );
+ extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
++
++/* a click-through popup that can't be activated, like a drag feedback window */
++static inline BOOL is_overlay_window( DWORD style, DWORD ex_style )
++{
++    DWORD mask = WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED;
++    return (style & WS_POPUP) && (ex_style & mask) == (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
++}
++
+ extern void change_systray_owner( Display *display, Window systray_window );
+ extern BOOL update_clipboard( HWND hwnd );
+ extern void init_win_context(void);
+-- 
+2.53.0
+
