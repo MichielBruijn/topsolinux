@@ -29,7 +29,8 @@ retarget_desktop_files()  # OLD NEW
         -e "s/^file_path = $o\$/file_path = $n/" "$f"
 }
 
-# DESKTOPFILE gets action ID (NAME), which runs COMMAND ARG, unless it has it
+# DESKTOPFILE gets action ID (NAME), which runs COMMAND ARG, unless it has it; ADDED_ACTIONS lists the new ones
+ADDED_ACTIONS=""
 add_action()  # DESKTOPFILE COMMAND ID NAME ARG
 {
     local icon
@@ -42,6 +43,7 @@ add_action()  # DESKTOPFILE COMMAND ID NAME ARG
         [ -n "$icon" ] && printf 'Icon=%s\n' "$icon"
         printf 'Exec=%s %s\n' "$2" "$5"
     } >> "$1"
+    case "$ADDED_ACTIONS" in *"$4"*) ;; *) ADDED_ACTIONS="${ADDED_ACTIONS:+$ADDED_ACTIONS, }$4" ;; esac
 }
 
 # the actions that app menu entries made by older versions don't have: "Check for TopSo'Linux updates"
@@ -56,8 +58,8 @@ add_update_action()  # DESKTOPFILE COMMAND
 add_update_actions()  # APPIMAGE
 {
     local f
-    grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop |
-        while IFS= read -r -d '' f; do add_update_action "$f" "$1"; done
+    while IFS= read -r -d '' f; do add_update_action "$f" "$1"; done \
+        < <(grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop)
 }
 
 # the command that installs a distribution package, run as root
