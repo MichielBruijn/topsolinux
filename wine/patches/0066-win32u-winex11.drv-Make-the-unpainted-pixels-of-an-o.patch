@@ -1,0 +1,140 @@
+From 8fbab7260975ad14ddad5d90a4c3f3d0b5d7a3e6 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 11 Oct 2026 23:09:06 +0200
+Subject: [PATCH 66/68] win32u, winex11.drv: Make the unpainted pixels of an
+ overlay window transparent.
+
+On Windows a window shows what is below it until it paints. TopSolid draws its splitter
+and docking feedback with PATINVERT on a screen-sized overlay that never paints, which
+under Wine was a white window over the whole screen. Its surface gets white as color key,
+and winex11 shows it with an ARGB visual whose key pixels get alpha 0; a shape of the
+screen's size is too slow to update while dragging.
+---
+ dlls/win32u/window.c      | 10 ++++++++++
+ dlls/winex11.drv/bitblt.c | 33 ++++++++++++++++++++++++++++-----
+ 2 files changed, 38 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+index 8a26cf4e2ae..87dd82bb0c9 100644
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -2199,6 +2199,14 @@ static BOOL get_default_window_surface( HWND hwnd, const RECT *surface_rect, str
+     return TRUE;
+ }
+ 
++/* a click-through popup that can't be activated, like a drag feedback window; on Windows it
++ * shows what is below it until it paints, so its unpainted pixels must not hide anything */
++static BOOL is_overlay_window( UINT style, UINT ex_style )
++{
++    UINT mask = WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED;
++    return (style & WS_POPUP) && (ex_style & mask) == (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
++}
++
+ static struct window_surface *get_window_surface( HWND hwnd, UINT swp_flags, BOOL create_layered,
+                                                   struct window_rects *rects, RECT *surface_rect )
+ {
+@@ -2265,6 +2273,8 @@ static struct window_surface *get_window_surface( HWND hwnd, UINT swp_flags, BOO
+         if (!NtUserGetLayeredWindowAttributes( hwnd, &key, &alpha, &lwa_flags )) lwa_flags = 0;
+         if (lwa_flags & LWA_ALPHA) alpha_bits = alpha << 24;
+         if (!(lwa_flags & LWA_COLORKEY)) key = CLR_INVALID;
++        /* unpainted pixels of a new surface are white, make them transparent */
++        if (key == CLR_INVALID && !is_child && is_overlay_window( style, ex_style )) key = RGB( 255, 255, 255 );
+         window_surface_set_layered( new_surface, key, alpha_bits, 0 );
+     }
+ 
+diff --git a/dlls/winex11.drv/bitblt.c b/dlls/winex11.drv/bitblt.c
+index 1f910400893..5263ca57dbf 100644
+--- a/dlls/winex11.drv/bitblt.c
++++ b/dlls/winex11.drv/bitblt.c
+@@ -1589,6 +1589,7 @@ struct x11drv_window_surface
+     GC                    gc;
+     struct x11drv_image  *image;
+     BOOL                  byteswap;
++    BOOL                  overlay;  /* ARGB window, color key pixels are transparent */
+ };
+ 
+ static struct x11drv_window_surface *get_x11_surface( struct window_surface *surface )
+@@ -1809,7 +1810,20 @@ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const R
+         }
+     }
+ 
+-    if (src != dst)
++    if (surface->overlay && !surface->byteswap && ximage->bits_per_pixel == 32)
++    {
++        /* blend the overlay instead of shaping it, a shape of its size is slow to update;
++         * only the dirty part is converted, it may be a thin line on a screen-sized window */
++        int x, y, stride = ximage->bytes_per_line / sizeof(ULONG);
++        const ULONG *from = (const ULONG *)src + dirty->top * stride;
++        ULONG *to = (ULONG *)dst + dirty->top * stride, key = window_surface->color_key;
++
++        for (y = dirty->top; y < dirty->bottom; y++, from += stride, to += stride)
++            for (x = dirty->left; x < dirty->right; x++)
++                to[x] = (from[x] & 0xffffff) == key ? 0 : from[x] | 0xff000000;
++        shape_changed = FALSE;
++    }
++    else if (src != dst)
+     {
+         int map[256], *mapping = get_window_surface_mapping( ximage->bits_per_pixel, map );
+         int width_bytes = ximage->bytes_per_line;
+@@ -1882,7 +1896,7 @@ static const struct window_surface_funcs x11drv_surface_funcs =
+  *           create_surface
+  */
+ static struct window_surface *create_surface( HWND hwnd, Window window, const XVisualInfo *vis, const RECT *rect,
+-                                              BOOL use_alpha )
++                                              BOOL use_alpha, BOOL overlay )
+ {
+     const XPixmapFormatValues *format = pixmap_formats[vis->depth];
+     char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+@@ -1908,8 +1922,9 @@ static struct window_surface *create_surface( HWND hwnd, Window window, const XV
+     if (!(image = x11drv_image_create( info, vis ))) return NULL;
+ 
+     /* wrap the XImage data in a HBITMAP if we can write to the surface pixels directly */
+-    if ((byteswap = image_needs_byteswap( image->ximage, is_r8g8b8( vis ), info->bmiHeader.biBitCount )) ||
+-        info->bmiHeader.biBitCount <= 8 || !(d3d_format = get_dib_d3dddifmt( info )))
++    byteswap = image_needs_byteswap( image->ximage, is_r8g8b8( vis ), info->bmiHeader.biBitCount );
++    if (overlay) TRACE( "overlay surface, using copies\n" ); /* the copies get the alpha */
++    else if (byteswap || info->bmiHeader.biBitCount <= 8 || !(d3d_format = get_dib_d3dddifmt( info )))
+         WARN( "Cannot use direct rendering, falling back to copies\n" );
+     else
+     {
+@@ -1943,6 +1958,7 @@ static struct window_surface *create_surface( HWND hwnd, Window window, const XV
+         surface = get_x11_surface( window_surface );
+         surface->image = image;
+         surface->byteswap = byteswap;
++        surface->overlay = overlay;
+         surface->window = window;
+         surface->gc = XCreateGC( gdi_display, window, 0, NULL );
+         XSetSubwindowMode( gdi_display, surface->gc, IncludeInferiors );
+@@ -1969,6 +1985,7 @@ BOOL X11DRV_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_re
+ {
+     struct window_surface *previous;
+     struct x11drv_win_data *data;
++    BOOL overlay = FALSE;
+ 
+     TRACE( "hwnd %p, layered %u, surface_rect %s, surface %p\n", hwnd, layered, wine_dbgstr_rect( surface_rect ), surface );
+ 
+@@ -1987,6 +2004,12 @@ BOOL X11DRV_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_re
+         data->layered = TRUE;
+         if (!data->embedded && argb_visual.visualid) set_window_visual( data, &argb_visual, TRUE );
+     }
++    else if (!data->embedded && argb_visual.visualid && argb_visual.depth == 32 &&
++             is_overlay_window( NtUserGetWindowLongW( hwnd, GWL_STYLE ), NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ) ))
++    {
++        set_window_visual( data, &argb_visual, FALSE );
++        overlay = TRUE;
++    }
+     else if (enable_direct_drawing( data, layered ))
+     {
+         *surface = NULL;  /* indicate that we want to draw directly to the window */
+@@ -1994,7 +2017,7 @@ BOOL X11DRV_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_re
+     }
+ 
+     *surface = create_surface( data->hwnd, data->whole_window, &data->vis, surface_rect,
+-                               layered ? data->use_alpha : FALSE );
++                               layered ? data->use_alpha : FALSE, overlay );
+ 
+ done:
+     release_win_data( data );
+-- 
+2.53.0
+

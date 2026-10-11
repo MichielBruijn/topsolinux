@@ -1,0 +1,93 @@
+From 48c0a76310c38c5b7194621b61cdbf9be7a083e6 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 11 Oct 2026 23:09:06 +0200
+Subject: [PATCH 64/68] win32u: Erase the update region again when a window's
+ bits are moved without it.
+
+The update region isn't copied when a window moves, so what is there afterwards is what
+was below the window, not the background it erased at its old position. A window that
+erased already (RDW_ERASENOW, as WinForms does during layout) then only got WM_PAINT, and a
+control that paints its background in WM_ERASEBKGND left the old pixels: dragging a
+TopSolid panel splitter left a strip of the old panel next to it until a full repaint.
+Windows repaints it with its background.
+---
+ dlls/win32u/dce.c | 35 +++++++++++++++++++++++++++++++++--
+ 1 file changed, 33 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
+index 67d3dc84bc7..836156f1d21 100644
+--- a/dlls/win32u/dce.c
++++ b/dlls/win32u/dce.c
+@@ -1644,6 +1644,35 @@ static BOOL send_erase( HWND hwnd, UINT flags, HRGN client_rgn,
+     return need_erase;
+ }
+ 
++/***********************************************************************
++ *           copy_update_region
++ *
++ * Copy the update region that is excluded from moving the window bits.
++ */
++static HRGN copy_update_region( HRGN rgn )
++{
++    HRGN copy;
++    RECT box;
++
++    if (!rgn || NtGdiGetRgnBox( rgn, &box ) == NULLREGION) return 0;
++    if ((copy = NtGdiCreateRectRgn( 0, 0, 0, 0 ))) NtGdiCombineRgn( copy, rgn, 0, RGN_COPY );
++    return copy;
++}
++
++/***********************************************************************
++ *           erase_update_region
++ *
++ * The bits of the update region weren't moved with the window, so what is there now
++ * isn't the background the window erased at its old position: erase it again.
++ */
++static void erase_update_region( HWND hwnd, HRGN rgn )
++{
++    if (!rgn) return;
++    map_window_region( 0, hwnd, rgn );
++    NtUserRedrawWindow( hwnd, NULL, rgn, RDW_INVALIDATE | RDW_ERASE | RDW_NOCHILDREN );
++    NtGdiDeleteObjectApp( rgn );
++}
++
+ /***********************************************************************
+  *           move_window_bits
+  *
+@@ -1657,7 +1686,7 @@ void move_window_bits( HWND hwnd, const struct window_rects *rects, const RECT *
+         src.top - rects->visible.top != dst.top - rects->visible.top)
+     {
+         UINT flags = UPDATE_NOCHILDREN | UPDATE_CLIPCHILDREN;
+-        HRGN rgn = get_update_region( hwnd, &flags, NULL );
++        HRGN rgn = get_update_region( hwnd, &flags, NULL ), erase_rgn = copy_update_region( rgn );
+         HDC hdc = NtUserGetDCEx( hwnd, rgn, DCX_CACHE | DCX_WINDOW | DCX_EXCLUDERGN );
+ 
+         TRACE( "copying %s -> %s\n", wine_dbgstr_rect( &src ), wine_dbgstr_rect( &dst ));
+@@ -1667,6 +1696,7 @@ void move_window_bits( HWND hwnd, const struct window_rects *rects, const RECT *
+         NtGdiStretchBlt( hdc, dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
+                          hdc, src.left, src.top, src.right - src.left, src.bottom - src.top, SRCCOPY, 0 );
+         NtUserReleaseDC( hwnd, hdc );
++        erase_update_region( hwnd, erase_rgn );
+     }
+ }
+ 
+@@ -1682,7 +1712,7 @@ void move_window_bits_surface( HWND hwnd, const RECT *window_rect, struct window
+     char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+     BITMAPINFO *info = (BITMAPINFO *)buffer;
+     UINT flags = UPDATE_NOCHILDREN | UPDATE_CLIPCHILDREN;
+-    HRGN rgn = get_update_region( hwnd, &flags, NULL );
++    HRGN rgn = get_update_region( hwnd, &flags, NULL ), erase_rgn = copy_update_region( rgn );
+     HDC hdc = NtUserGetDCEx( hwnd, rgn, DCX_CACHE | DCX_WINDOW | DCX_EXCLUDERGN );
+     void *bits;
+ 
+@@ -1701,6 +1731,7 @@ void move_window_bits_surface( HWND hwnd, const RECT *window_rect, struct window
+                                     bits, info, DIB_RGB_COLORS, 0, 0, FALSE, NULL );
+     window_surface_unlock( old_surface );
+     NtUserReleaseDC( hwnd, hdc );
++    erase_update_region( hwnd, erase_rgn );
+ }
+ 
+ 
+-- 
+2.53.0
+
