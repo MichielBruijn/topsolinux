@@ -1,0 +1,53 @@
+From 4118b0f117a5d6a348564c19a755bd5044f7f685 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 11 Oct 2026 23:50:49 +0200
+Subject: [PATCH] win32u: Don't keep a popup topmost when it is directly above
+ its owner.
+
+To keep a popup above its owner, HWND_NOTOPMOST was replaced with the window just above
+the owner, which was the popup itself when nothing else was in between. Inserted after
+itself it kept its place and WS_EX_TOPMOST. TopSolid shows a floating panel restored at
+startup topmost, before its main window, and then makes it not topmost; it stayed on top
+of all other applications. Windows makes it not topmost.
+---
+ dlls/win32u/window.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+index 7b7f4a52413..f776e1191c9 100644
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -4034,7 +4034,7 @@ static BOOL fixup_swp_flags( WINDOWPOS *winpos, const RECT *old_window_rect, int
+  */
+ static HWND swp_owner_popups( HWND hwnd, HWND after )
+ {
+-    HWND owner, *list = NULL;
++    HWND owner, prev = 0, *list = NULL;
+     unsigned int i;
+ 
+     TRACE( "(%p) after = %p\n", hwnd, after );
+@@ -4053,9 +4053,12 @@ static HWND swp_owner_popups( HWND hwnd, HWND after )
+             {
+                 BOOL topmost = (get_window_long( list[i], GWL_EXSTYLE ) & WS_EX_TOPMOST) != 0;
+ 
++                if (list[i] == hwnd) continue;  /* placing it after itself would keep its old place */
+                 if (list[i] == owner)
+                 {
+-                    if (i > 0) after = list[i-1];
++                    /* above the first non-topmost window is already above the owner */
++                    if (after == HWND_NOTOPMOST && !topmost) break;
++                    if (prev) after = prev;
+                     else after = topmost ? HWND_TOPMOST : HWND_TOP;
+                     break;
+                 }
+@@ -4065,6 +4068,7 @@ static HWND swp_owner_popups( HWND hwnd, HWND after )
+                     if (!topmost) break;
+                 }
+                 else if (list[i] == after) break;
++                prev = list[i];
+             }
+         }
+     }
+-- 
+2.53.0
+
