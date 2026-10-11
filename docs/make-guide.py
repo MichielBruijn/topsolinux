@@ -78,7 +78,7 @@ story = [
 
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
-            '<i>Wine settings</i>, <i>Stop background services</i> and <i>Check for TopSo\'Linux updates</i>, which '
+            '<i>SpaceMouse settings</i>, <i>Wine settings</i>, <i>Stop background services</i> and <i>Check for TopSo\'Linux updates</i>, which '
             'updates the AppImage to the newest TopSo\'Linux. TopSolid also looks for one once a day when it starts.',
             'Another computer: copy the AppImage there and start it, and choose <i>Install</i> (app menu, with Gear Lever) or <i>Launch</i>. The first start sets TopSolid up in '
             + c('~/.local/share/topsolinux') + ', which takes a few minutes. Each computer needs its own license.',
@@ -129,9 +129,8 @@ story += [
             'Dragging the window edge does not work.',
             'The close button does not work in some dialogs: use the green check mark or the red cross at the '
             'bottom, or Esc.',
-            'SpaceMouse: works through spacenavd, no 3Dconnexion driver needed. Axis directions and speeds are in '
-            'the registry under ' + c('HKCU\\Software\\Wine\\TDxNavLib') + ' (' + c('AxisSigns') + ', '
-            + c('AxisMap') + ', ' + c('TranslationSpeed') + ', ' + c('RotationSpeed') + ').',
+            'SpaceMouse: works through spacenavd, no 3Dconnexion driver needed. Speeds and axis directions: '
+            'right-click TopSolid\'s icon, <i>SpaceMouse settings</i>. Changes work right away.',
             'Numbers and units follow the desktop\'s <i>Formats</i>: Dutch formats give a decimal comma and mm. '
             'To change them: ' + c('regedit') + ', ' + c('HKCU\\Control Panel\\International') + ' ('
             + c('sDecimal') + ', ' + c('iMeasure') + ' 0 = metric).',

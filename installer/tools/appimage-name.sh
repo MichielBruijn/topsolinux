@@ -29,20 +29,27 @@ retarget_desktop_files()  # OLD NEW
         -e "s/^file_path = $o\$/file_path = $n/" "$f"
 }
 
-# DESKTOPFILE gets the action "Check for TopSo'Linux updates", which runs COMMAND topsolinux-update;
-# app menu entries made before TopSo'Linux 1.6.15 don't have it
-add_update_action()  # DESKTOPFILE COMMAND
+# DESKTOPFILE gets action ID (NAME), which runs COMMAND ARG, unless it has it
+add_action()  # DESKTOPFILE COMMAND ID NAME ARG
 {
     local icon
-    grep -qs '^\[Desktop Action topsolinux\]' "$1" && return 0
+    grep -qs "^\[Desktop Action $3\]" "$1" && return 0
     grep -qs '^Actions=' "$1" || return 0
     icon="$(sed -n '/^\[Desktop Action /q; s/^Icon=//p' "$1" | head -1)"
-    sed -i 's/^Actions=\(.*[^;]\);*$/Actions=\1;topsolinux;/' "$1"
+    sed -i "s/^Actions=\(.*[^;]\);*\$/Actions=\1;$3;/" "$1"
     {
-        printf "\n[Desktop Action topsolinux]\nName=Check for TopSo'Linux updates\n"
+        printf '\n[Desktop Action %s]\nName=%s\n' "$3" "$4"
         [ -n "$icon" ] && printf 'Icon=%s\n' "$icon"
-        printf 'Exec=%s topsolinux-update\n' "$2"
+        printf 'Exec=%s %s\n' "$2" "$5"
     } >> "$1"
+}
+
+# the actions that app menu entries made by older versions don't have: "Check for TopSo'Linux updates"
+# (1.6.15) and "SpaceMouse settings" (1.6.21)
+add_update_action()  # DESKTOPFILE COMMAND
+{
+    add_action "$1" "$2" topsolinux "Check for TopSo'Linux updates" topsolinux-update
+    add_action "$1" "$2" spacemouse "SpaceMouse settings" spacemouse
 }
 
 # the app menu entries that start APPIMAGE
