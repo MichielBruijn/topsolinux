@@ -42,8 +42,8 @@ Briefly tested, with care:
 
 ## Installing
 
-1. Download `TopSoLinux-Installer-1.6.19-x86_64.AppImage` from the [releases](../../releases).
-2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.19-x86_64.AppImage`) and start it.
+1. Download `TopSoLinux-Installer-1.6.20-x86_64.AppImage` from the [releases](../../releases).
+2. Make it executable (file properties, or `chmod +x TopSoLinux-Installer-1.6.20-x86_64.AppImage`) and start it.
 3. Follow the steps:
    - use the installation media found on your computer (the installer looks one folder deep in
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
@@ -56,9 +56,9 @@ Briefly tested, with care:
    it and installs SQL Server itself afterwards. Close the errors and the setup.
 5. Wait. The whole installation takes 30 to 60 minutes.
 
-The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.19-x86_64.AppImage`; its name shows the
+The result is a TopSolid AppImage (`TopSolid-7.20-TopSoLinux-1.6.20-x86_64.AppImage`; its name shows the
 TopSo'Linux version that made it). Gear Lever moves it to its own folder as
-`topsolid_7.20_topsolinux-1.6.19.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
+`topsolid_7.20_topsolinux-1.6.20.appimage`; if Gear Lever can't be installed, it stays in `~/Downloads`.
 Gear Lever names an AppImage after the app when you add it yourself; the first start puts the version back.
 
 Without a desktop, or to script it:
@@ -197,8 +197,8 @@ While TopSolid runs, a small watchdog keeps its dialogs from hanging in an endle
 such as the PDM "Connection" dialog of the first start or a command's dialog (`installer/tools/unstick.c`
 explains why).
 
-Wine needed 62 changes for TopSolid, from COM security, WMI and NTLM authentication for SQL Server to
-certificate handling, services, painting, tooltips, clicks through tooltips, maximized windows, windows larger than a monitor, 3D frames shown in time, the primary monitor, large trees without flicker, drag and drop, a thread leak and a SpaceMouse bridge. They are in
+Wine needed 63 changes for TopSolid, from COM security, WMI and NTLM authentication for SQL Server to
+certificate handling, services, painting, tooltips, clicks through tooltips, maximized windows, windows larger than a monitor, 3D frames shown in time, the primary monitor, large trees without flicker, drag and drop, painting during a STEP export, a thread leak and a SpaceMouse bridge. They are in
 `wine/patches`, on top of the upstream commit in `wine/UPSTREAM_COMMIT`. They are not submitted to Wine:
 Wine does not accept AI-generated code (see below).
 
