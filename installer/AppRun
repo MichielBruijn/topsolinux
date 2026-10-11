@@ -735,8 +735,10 @@ update_appimage()  # FILE
         rm -f "$old"
     fi
     echo "$new" > "$DATA/appimage.path"
-    # the app menu entry gets the right-click actions this version added
+    # the app menu entry gets the right-click actions this version added; GNOME reads them at the next login
     add_update_actions "$new"
+    [ -n "$ADDED_ACTIONS" ] &&
+        NOTES="$NOTES\n• New when you right-click TopSolid's icon: <i>$ADDED_ACTIONS</i>. Log out and in once if it's not there yet."
     UPDATED="$new"
 }
 
