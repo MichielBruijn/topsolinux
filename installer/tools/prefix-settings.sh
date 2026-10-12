@@ -5,13 +5,14 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=1
+SETTINGS_LEVEL=2
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
 
-# e.g.
-# settings_2() { "$WINE" reg add 'HKCU\Software\Wine\X11 Driver' /v UseXIM /d N /f >/dev/null 2>&1; }
+# 1.6.25: the window manager gives the keyboard focus itself; with WM_TAKE_FOCUS, mutter's request was
+# sometimes ignored and keys went to another program
+settings_2() { "$WINE" reg add 'HKCU\Software\Wine\X11 Driver' /v UseTakeFocus /d N /f >/dev/null 2>&1; }
 
 # the level of the prefix, 0 for one made before levels existed
 settings_level() { local l; l="$(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"; echo "${l:-0}"; }
