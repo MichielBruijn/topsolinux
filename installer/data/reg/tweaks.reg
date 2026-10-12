@@ -2,6 +2,7 @@ Windows Registry Editor Version 5.00
 
 [HKEY_CURRENT_USER\Software\Wine\X11 Driver]
 "Decorated"="N"
+"UseTakeFocus"="N"
 
 [HKEY_CURRENT_USER\Software\Wine\TDxNavLib]
 "TranslationSpeed"="2.4"
