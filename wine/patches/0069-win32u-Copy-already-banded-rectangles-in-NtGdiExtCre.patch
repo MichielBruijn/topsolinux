@@ -1,0 +1,72 @@
+From df50de7b60fcafa1331c8779f5dbac2ec1fbc454 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 12 Oct 2026 20:12:41 +0200
+Subject: [PATCH] win32u: Copy already banded rectangles in
+ NtGdiExtCreateRegion.
+
+get_window_region() rebuilds a window region from the server's rectangles on
+every SetWindowPos and CreateWindow. Merging them one by one is quadratic: with
+a region of a few thousand rectangles this took half of TopSolid's UI thread
+when accepting a sketch command.
+---
+ dlls/win32u/region.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/dlls/win32u/region.c b/dlls/win32u/region.c
+index 35ef4a22256..023d8bb733f 100644
+--- a/dlls/win32u/region.c
++++ b/dlls/win32u/region.c
+@@ -366,6 +366,7 @@ static BOOL REGION_UnionRegion(WINEREGION *d, WINEREGION *s1, WINEREGION *s2);
+ static BOOL REGION_SubtractRegion(WINEREGION *d, WINEREGION *s1, WINEREGION *s2);
+ static BOOL REGION_XorRegion(WINEREGION *d, WINEREGION *s1, WINEREGION *s2);
+ static BOOL REGION_UnionRectWithRegion(const RECT *rect, WINEREGION *rgn);
++static void REGION_SetExtents(WINEREGION *pReg);
+ 
+ /***********************************************************************
+  *            get_region_type
+@@ -873,6 +874,24 @@ static void translate( POINT *pt, UINT count, const XFORM *xform )
+ }
+ 
+ 
++/* sorted in y-x bands without overlap or touching rectangles, like the regions we create */
++static BOOL is_banded( const RECT *rects, UINT count )
++{
++    UINT i;
++
++    for (i = 0; i < count; i++)
++    {
++        if (rects[i].left >= rects[i].right || rects[i].top >= rects[i].bottom) return FALSE;
++        if (!i) continue;
++        if (rects[i].top == rects[i - 1].top)
++        {
++            if (rects[i].bottom != rects[i - 1].bottom || rects[i].left <= rects[i - 1].right) return FALSE;
++        }
++        else if (rects[i].top < rects[i - 1].bottom) return FALSE;
++    }
++    return TRUE;
++}
++
+ /***********************************************************************
+  *           NtGdiExtCreateRegion   (win32u.@)
+  *
+@@ -935,6 +954,17 @@ HRGN WINAPI NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA
+ 
+     if (!(obj = alloc_region( rgndata->rdh.nCount ))) return 0;
+ 
++    if (is_banded( (const RECT *)rgndata->Buffer, rgndata->rdh.nCount ))
++    {
++        /* already a valid region (e.g. from the server or GetRegionData): merging the
++         * rectangles one by one is quadratic, and slow for regions of a few thousand */
++        memcpy( obj->rects, rgndata->Buffer, rgndata->rdh.nCount * sizeof(RECT) );
++        obj->numRects = rgndata->rdh.nCount;
++        REGION_SetExtents( obj );
++        hrgn = alloc_gdi_handle( &obj->obj, NTGDI_OBJ_REGION, &region_funcs );
++        goto done;
++    }
++
+     pEndRect = (const RECT *)rgndata->Buffer + rgndata->rdh.nCount;
+     for(pCurRect = (const RECT *)rgndata->Buffer; pCurRect < pEndRect; pCurRect++)
+     {
+-- 
+2.53.0
+
