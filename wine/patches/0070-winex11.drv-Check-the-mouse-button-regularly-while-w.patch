@@ -1,0 +1,48 @@
+From c447ebbc33680f2109e0301df1eb458f91b565d9 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 12 Oct 2026 22:06:54 +0200
+Subject: [PATCH] winex11.drv: Check the mouse button regularly while waiting
+ for a size/move.
+
+move_resize_window() only polls the button between two passes over the
+message queue. A window that invalidates itself while painting keeps the
+queue busy, so the button release was never noticed: TopSolid's error
+dialog could not be closed after its caption was dragged, because the 3D
+view below kept repainting.
+---
+ dlls/winex11.drv/mouse.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index cb79ed55fee..c7178ccc333 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -1539,6 +1539,7 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
+         MSG msg;
+         int x, y, rootX, rootY;
+         UINT flags = button_up_flags[button];
++        DWORD start;
+ 
+         if (!XQueryPointer( display, root_window, &root, &child, &rootX, &rootY, &x, &y, &xstate )) break;
+ 
+@@ -1546,6 +1547,7 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
+             send_mouse_input( hwnd, root_to_virtual_screen( x, y ), MOUSEEVENTF_ABSOLUTE | flags,
+                               button_up_data[button], NtGetTickCount(), NULL );
+ 
++        start = NtGetTickCount();
+         while (NtUserPeekMessage( &msg, 0, 0, 0, PM_REMOVE ))
+         {
+             if (!NtUserCallMsgFilter( &msg, MSGF_SIZE ))
+@@ -1553,6 +1555,9 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
+                 NtUserTranslateMessage( &msg, 0 );
+                 NtUserDispatchMessage( &msg );
+             }
++            /* a window that invalidates itself while painting never empties the queue,
++             * check the button again from time to time */
++            if (NtGetTickCount() - start > 100) break;
+         }
+ 
+         if (!(xstate & (Button1Mask << button))) break;
+-- 
+2.53.0
+
