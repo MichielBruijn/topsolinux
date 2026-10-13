@@ -1,0 +1,90 @@
+From de5efb793a62d50e41900e0e6ffaf5f2013594fa Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Tue, 13 Oct 2026 23:01:01 +0200
+Subject: [PATCH] win32u: Give the focus back to the child that had it when a
+ window is activated.
+
+When a window gets activated and the focus is not in it, the focus went
+to the window itself. TopSolid does not move it on to a child then: after
+one of its message boxes closed, the focus stayed on the main window,
+where its shortcuts (Ctrl+Z, Ctrl+I) do nothing until the user clicked
+in the 3D view. Remember the focused child of each top-level window and
+give the focus back to it, if it can still take it.
+---
+ dlls/win32u/input.c          | 32 +++++++++++++++++++++++++++++++-
+ dlls/win32u/ntuser_private.h |  1 +
+ 2 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index c24bbab1d4a..954d9cc1c86 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2069,6 +2069,33 @@ BOOL WINAPI NtUserReleaseCapture(void)
+     return set_capture_window( 0, 0, &previous );
+ }
+ 
++/* remember the child that has the focus in its top-level window */
++static void save_last_focus( HWND hwnd )
++{
++    HWND root = NtUserGetAncestor( hwnd, GA_ROOT );
++    WND *win;
++
++    if (!root || root == hwnd) return;
++    if (!(win = get_win_ptr( root )) || win == WND_OTHER_PROCESS || win == WND_DESKTOP) return;
++    win->last_focus = hwnd;
++    release_win_ptr( win );
++}
++
++/* the child that had the focus when the top-level window was active, if it can still take it */
++static HWND get_last_focus( HWND root )
++{
++    HWND last = 0;
++    WND *win;
++
++    if (!(win = get_win_ptr( root )) || win == WND_OTHER_PROCESS || win == WND_DESKTOP) return root;
++    if (!(win->dwStyle & WS_MINIMIZE)) last = win->last_focus;
++    release_win_ptr( win );
++    if (!last || !is_window( last ) || NtUserGetAncestor( last, GA_ROOT ) != root ||
++        !is_window_visible( last ) || !is_window_enabled( last ))
++        return root;
++    return last;
++}
++
+ /*****************************************************************
+  *		set_focus_window
+  *
+@@ -2102,6 +2129,7 @@ static HWND set_focus_window( HWND hwnd )
+     }
+     if (is_window(hwnd))
+     {
++        save_last_focus( hwnd );
+         ime_hwnd = get_default_ime_window( hwnd );
+         if (ime_hwnd)
+             send_message( ime_hwnd, WM_IME_INTERNAL, IME_INTERNAL_ACTIVATE,
+@@ -2217,8 +2245,10 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new
+         /* Do not change focus if the window is no more active */
+         if (hwnd == info.hwndActive)
+         {
++            /* give the focus back to the child that had it: TopSolid leaves it on its main window
++             * after a message box closes, where its shortcuts do nothing */
+             if (!info.hwndFocus || !hwnd || NtUserGetAncestor( info.hwndFocus, GA_ROOT ) != hwnd)
+-                set_focus_window( hwnd );
++                set_focus_window( hwnd ? get_last_focus( hwnd ) : hwnd );
+         }
+     }
+ 
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index 26bab84b2e7..80f3426ba3c 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -71,6 +71,7 @@ typedef struct tagWND
+     int                swap_interval; /* OpenGL surface swap interval */
+     int                pixel_format;  /* Pixel format set by the graphics driver */
+     int                clip_clients;  /* Has client surfaces that needs to be clipped out */
++    HWND               last_focus;    /* child that had the focus, for a top-level window */
+ } WND;
+ 
+ /* WND flags values */
+-- 
+2.53.0
+
