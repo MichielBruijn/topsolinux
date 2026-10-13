@@ -765,6 +765,7 @@ run_update_appimage()
     update_appimage "$old"
     firewall_license
     progress_stop
+    trap - TERM # done: closing the message is no cancel
     info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${UPDATED/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it.$NOTES"
 }
 
