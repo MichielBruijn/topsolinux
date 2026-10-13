@@ -172,8 +172,12 @@ setup_gpu()
         if [ -d /proc/driver/nvidia ]; then
             vendors="$(cat /sys/class/drm/card*/device/vendor 2>/dev/null | sort -u)"
             if echo "$vendors" | grep -q -E '0x8086|0x1002'; then mode=nvidia; fi
+            # "Launch using Integrated Graphics Card": the app menu entry prefers the NVIDIA GPU, yet its variables are missing
+            [ $mode = nvidia ] && [ -z "${__NV_PRIME_RENDER_OFFLOAD:-}" ] &&
+                grep -qs '^PrefersNonDefaultGPU=true' "${GIO_LAUNCHED_DESKTOP_FILE:-/dev/null}" && mode=default
         fi
     fi
+    echo "topsolinux: graphics $mode" >&2
     if [ "$mode" = nvidia ]; then
         export __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only
         [ -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ] &&

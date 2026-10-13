@@ -639,6 +639,8 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
+PrefersNonDefaultGPU=true
+X-KDE-RunOnDiscreteGpu=true
 Actions=update;license;spacemouse;winecfg;stop;topsolinux;
 
 [Desktop Action update]
