@@ -179,6 +179,8 @@ setup_gpu()
         [ -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ] &&
             export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
     fi
+    # explicit sync lands the frame after Wine copied the 3D view: a delete showed up one frame late
+    [ -d /proc/driver/nvidia ] && export __NV_X11_DISABLE_EXPLICIT_SYNC="${__NV_X11_DISABLE_EXPLICIT_SYNC:-1}"
 }
 
 pdm_state()
