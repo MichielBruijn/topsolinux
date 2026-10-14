@@ -12,10 +12,12 @@
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
 #   debug [PROGRAM]   write the windows, focus and stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
+#   report            make a zip with the logs for a problem report (asks to record TopSolid while it goes wrong)
+#   record [update]   start TopSolid (or TopSolid'Update) and make that report when it closes
 #   topsolinux-update update this TopSolid AppImage with the newest TopSo'Linux from GitHub, if there is one
 #   update-check on|off  whether TopSolid looks for a newer TopSo'Linux when it starts (once a day; on)
 #
-# environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_SCALE=PERCENT (same as scale),
+# environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_GL=native (Intel: not zink), TOPSOLID_SCALE=PERCENT,
 #              TOPSOLINUX_UPDATE_CHECK=0 (no update check at start),
 #              TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
@@ -338,33 +340,39 @@ apply_formats()
 set_international() { "$WINE" reg add 'HKCU\Control Panel\International' /v "$1" /d "$2" /f >/dev/null; }
 
 # the managed and native stacks of a hanging program, for a bug report; attaches only to that program
-debug_program()
+# the windows, keyboard focus and stacks of a running PROGRAM.exe (TopSolid.exe by default)
+program_state()  # [PROGRAM]
 {
-    local name="${1:-TopSolid}" out pid clr="$HERE/usr/lib/topsolinux/clrstack"
+    local name="${1:-TopSolid}" pid clr="$HERE/usr/lib/topsolinux/clrstack"
     name="${name%.exe}.exe"
-    out="$HOME/topsolid-debug-$(date +%Y%m%d-%H%M%S).txt"
     pid="$("$WINE" winedbg --command "info process" 2>/dev/null |
         awk -v n="'$name'" 'tolower($NF) == tolower(n) { gsub(/[^0-9a-fA-F]/, "", $1); print $1; exit }')"
-    # winedbg started the prefix and its services; nothing to keep them running for
-    [ -n "$pid" ] || { msg "$name is not running"; topsolid_running || stop_services; exit 1; }
-    msg "writing the stacks of $name to $out"
-    {
-        echo "=== $name (pid $pid), $(date '+%F %T'), TopSo'Linux $(cat "$HERE/usr/share/doc/topsolinux/VERSION" 2>/dev/null)"
-        echo; echo "=== windows, keyboard focus and mouse capture"
-        [ -f "$HERE/usr/lib/topsolinux/guiprobe.exe" ] && "$WINE" "$HERE/usr/lib/topsolinux/guiprobe.exe" "$pid"
-        echo; echo "=== managed stacks"
-        if [ -f "$clr/clrstack.exe" ]; then
-            # .NET doesn't load programs from Z:, so it runs from the prefix
-            rm -rf "$WINEPREFIX/drive_c/windows/temp/clrstack"
-            cp -a "$clr" "$WINEPREFIX/drive_c/windows/temp/"
-            "$WINE" 'C:\windows\temp\clrstack\clrstack.exe' "$pid"
-        else
-            echo "(not in this AppImage)"
-        fi
-        # no native stacks: when winedbg detaches, the thread it injected to attach crashes the program
-        echo; echo "=== end of the log"
-        tail -40 "$LOG"
-    } > "$out" 2>&1
+    [ -n "$pid" ] || { echo "$name is not running"; return 1; }
+    echo "=== $name (pid $pid), $(date '+%F %T'), TopSo'Linux $TSL_VERSION"
+    echo; echo "=== windows, keyboard focus and mouse capture"
+    [ -f "$TOOLS/guiprobe.exe" ] && "$WINE" "$TOOLS/guiprobe.exe" "$pid"
+    echo; echo "=== managed stacks"
+    if [ -f "$clr/clrstack.exe" ]; then
+        # .NET doesn't load programs from Z:, so it runs from the prefix
+        rm -rf "$WINEPREFIX/drive_c/windows/temp/clrstack"
+        cp -a "$clr" "$WINEPREFIX/drive_c/windows/temp/"
+        "$WINE" 'C:\windows\temp\clrstack\clrstack.exe' "$pid"
+    else
+        echo "(not in this AppImage)"
+    fi
+    # no native stacks: when winedbg detaches, the thread it injected to attach crashes the program
+}
+
+debug_program()  # [PROGRAM]
+{
+    local out="$HOME/topsolid-debug-$(date +%Y%m%d-%H%M%S).txt"
+    if ! program_state "${1:-}" > "$out" 2>&1; then
+        msg "$(cat "$out")"; rm -f "$out"
+        # winedbg started the prefix and its services; nothing to keep them running for
+        topsolid_running || stop_services
+        exit 1
+    fi
+    { echo; echo "=== end of the log"; tail -40 "$LOG"; } >> "$out"
     msg "done: $out"
 }
 
@@ -533,7 +541,191 @@ run()
     return $ret
 }
 
+# --- problem reports: a zip with the logs and what the computer has, to send to whoever helps -------
+REPORT_DESC="$DATA/report-description.txt"
+
+# the Linux process of TopSolid or TopSolid'Update
+topsolid_pid() { pgrep -u "$(id -u)" -f '^C:\\.*\\bin\\TopSolid(\.Update)?\.exe$' | head -1; }
+
+# what TopSolid's busiest threads and the NVIDIA GPU do, every 2 seconds, until killed
+record_load()  # FILE
+{
+    local pid
+    while sleep 1; do
+        pid="$(topsolid_pid)"
+        [ -n "$pid" ] || continue
+        {
+            echo "=== $(date +%T)"
+            # the second round of top measures the last second; its first lines are the totals
+            top -H -b -n2 -d1 -w 160 -p "$pid" | awk '/^top -/ { n++ } n == 2' | sed -n '1p;7,17p'
+            [ -d /proc/driver/nvidia ] && nvidia-smi --format=csv,noheader \
+                --query-gpu=pstate,clocks.gr,power.draw,utilization.gpu 2>/dev/null | sed 's/^/NVIDIA: /'
+        } >> "$1"
+    done
+}
+
+# which OpenGL driver Wine gives TopSolid, with the same environment
+gl_info() { [ -f "$TOOLS/glinfo.exe" ] && "$WINE" "$TOOLS/glinfo.exe" 2>/dev/null | tr -d '\r'; }
+
+system_info()  # [gl]: also which OpenGL driver Wine uses (starts the prefix)
+{
+    local c
+    echo "TopSo'Linux $TSL_VERSION, $(date '+%F %T')"
+    echo "AppImage: ${APPIMAGE:-none}"
+    echo "TopSolid: ${VERSION:-?} ($(ls "$WINEPREFIX/drive_c/Program Files/TOPSOLID" 2>/dev/null | tr '\n' ',' | sed 's/,$//'))"
+    echo "Wine: $("$WINE" --version 2>/dev/null), settings level $(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"
+    echo "install steps done: $(tr '\n' ' ' < "$DATA/install.state" 2>/dev/null)"
+    echo; echo "=== system"
+    . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-?}, kernel $(uname -r)"
+    echo "desktop: ${XDG_CURRENT_DESKTOP:-?}, session ${XDG_SESSION_TYPE:-?}, DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
+    echo "CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) threads"
+    free -h | sed -n '1,2p'
+    df -h "$DATA" "$HOME" 2>/dev/null | uniq
+    echo; echo "=== graphics"
+    for c in /sys/class/drm/card*; do
+        case "${c##*/}" in *-*) continue ;; esac
+        echo "${c##*/}: vendor $(cat "$c/device/vendor" 2>/dev/null) device $(cat "$c/device/device" 2>/dev/null)" \
+            "driver $(basename "$(readlink "$c/device/driver")") boot_vga=$(cat "$c/device/boot_vga" 2>/dev/null)"
+    done
+    command -v lspci >/dev/null && lspci -nn | grep -E 'VGA|3D|Display'
+    [ -f /proc/driver/nvidia/version ] && head -1 /proc/driver/nvidia/version
+    echo "environment: $(env | grep -E '^(TOPSOLID_|TOPSOLINUX_|__NV|__GL|__EGL|MESA|DRI_PRIME|WINE)' | tr '\n' ' ')"
+    [ "${1:-}" = gl ] && { echo "OpenGL under Wine:"; gl_info | sed 's/^/  /'; }
+    echo; echo "=== screens"
+    command -v xrandr >/dev/null && xrandr --listmonitors 2>/dev/null
+    [ -x "$TOOLS/desktop-dpi" ] && echo "desktop dpi: $("$TOOLS/desktop-dpi" 2>/dev/null)"
+    echo "scale: $(cat "$DATA/scale" 2>/dev/null || echo auto), LogPixels: $(grep -hi '"LogPixels"' "$WINEPREFIX/user.reg" "$WINEPREFIX/system.reg" 2>/dev/null | tr '\n' ' ')"
+    echo; echo "=== services"
+    for c in spacenavd aksusbd hasplmd ufw winbind; do
+        # this script hides the system bus from Wine
+        printf '%s: %s\n' "$c" "$(env -u DBUS_SYSTEM_BUS_ADDRESS systemctl is-active "$c" 2>/dev/null)"
+    done
+    echo "ntlm_auth: $(ntlm_auth --version 2>/dev/null || echo 'from the AppImage')"
+}
+
+# the zip goes to the Downloads folder; prints where it is
+make_report()  # [STATE FILE] [gl]
+{
+    local name dir out f u
+    name="topsolid-report-$(date +%Y%m%d-%H%M%S)"
+    dir="$(mktemp -d)/$name"
+    mkdir -p "$dir"
+    [ -s "$REPORT_DESC" ] && cp "$REPORT_DESC" "$dir/description.txt"
+    system_info "${2:-}" > "$dir/system.txt" 2>&1
+    [ -s "$DATA/record.txt" ] && cp "$DATA/record.txt" "$dir/load.txt"
+    [ -n "${1:-}" ] && [ -s "$1" ] && cp "$1" "$dir/stacks.txt"
+    # the log of every start ever: its end is enough
+    tail -c 8000000 "$LOG" > "$dir/topsolinux.log"
+    tail -c 1000000 "$DATA/install.log" > "$dir/install.log" 2>/dev/null
+    for u in "$WINEPREFIX/drive_c/users/"*/AppData/Roaming/TOPSOLID; do
+        for f in "$u/TopSolid/"*/TopSolid.log "$u/TopSolid'Update/"*/TopSolid.Update.log; do
+            [ -f "$f" ] && tail -c 2000000 "$f" > "$dir/${f##*/}"
+        done
+    done
+    for f in "$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid'Local Pdm Server Service/"*/Maintenance.log; do
+        [ -f "$f" ] && tail -c 1000000 "$f" > "$dir/pdm-Maintenance.log"
+    done
+    for f in "$WINEPREFIX/drive_c/Program Files/Microsoft SQL Server/"*/MSSQL/Log/ERRORLOG; do
+        [ -f "$f" ] && tail -c 1000000 "$f" > "$dir/sql-ERRORLOG.txt"
+    done
+    # crash dumps of the last week: the newest one, when it isn't huge
+    find "$WINEPREFIX/drive_c/users" "$WINEPREFIX/drive_c/windows/temp" \( -name '*.mdmp' -o -name '*.dmp' \) -mtime -7 \
+        -printf '%T@ %s %p\n' \
+        2>/dev/null | sort -rn > "$dir/crash-dumps.txt"
+    f="$(head -1 "$dir/crash-dumps.txt" | awk '$2 < 50000000 { sub(/^[^ ]+ [^ ]+ /, ""); print }')"
+    [ -n "$f" ] && cp "$f" "$dir/"
+    out="$(xdg-user-dir DOWNLOAD 2>/dev/null)"
+    { [ -n "$out" ] && [ "$out" != "$HOME" ] && mkdir -p "$out"; } || out="$HOME"
+    out="$out/$name.zip"
+    (cd "${dir%/*}" && python3 -m zipfile -c "$out" "$name") >&2 || return 1
+    rm -rf "${dir%/*}"
+    rm -f "$DATA/record.txt" "$REPORT_DESC"
+    echo "$out"
+}
+
+# where the report is, and the file manager showing it
+report_done()  # ZIP
+{
+    [ -f "$1" ] || { tell error "Making the report failed. The log is $LOG."; return 1; }
+    msg "problem report: $1"
+    gui || return 0
+    dbus-send --session --dest=org.freedesktop.FileManager1 --type=method_call /org/freedesktop/FileManager1 \
+        org.freedesktop.FileManager1.ShowItems \
+        array:string:"$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).as_uri())' "$1")" string:"" \
+        2>/dev/null || xdg-open "${1%/*}" >/dev/null 2>&1 &
+    tell info "The report is saved as\n<b>$1</b>\n\nSend it to whoever helps you with TopSo'Linux. It has the logs and what this computer has, but no drawings, projects or license (their names can show up in the logs)."
+}
+
+# "Report a problem" in the app menu
+report_problem()
+{
+    local choice state=""
+    if gui; then
+        zenity --forms --title="$(app_name)" --window-icon="$ICON" --width=560 --text="Report a problem" \
+            --add-multiline-entry="What goes wrong, and what did you do just before?" > "$REPORT_DESC" 2>/dev/null ||
+            { rm -f "$REPORT_DESC"; return 0; }
+    fi
+    if topsolid_running; then
+        if tell question "TopSolid is running. When it is slow or stuck right now, the report can show what it does.\n\nRecord TopSolid for 20 seconds? Do the slow thing during that time."; then
+            rm -f "$DATA/record.txt"
+            record_load "$DATA/record.txt" & local rec=$!
+            if gui; then
+                sleep 20 | zenity --progress --pulsate --auto-close --no-cancel --title="$(app_name)" \
+                    --text="Recording TopSolid for 20 seconds..." 2>/dev/null
+            else
+                sleep 20
+            fi
+            kill "$rec" 2>/dev/null
+            state="$(mktemp)"
+            program_state TopSolid > "$state" 2>&1 || program_state TopSolid.Update > "$state" 2>&1
+        fi
+        report_done "$(make_report "${state:-}" gl)"
+        [ -n "${state:-}" ] && rm -f "$state"
+        return
+    fi
+    if gui; then
+        choice="$(zenity --list --radiolist --title="$(app_name)" --window-icon="$ICON" --width=560 --height=280 \
+            --text="TopSolid isn't running. Show what goes wrong while TopSo'Linux records it?" \
+            --column="" --column=what --column="" --hide-column=3 --print-column=3 \
+            TRUE "Start TopSolid and record (the report is made when you close it)" topsolid \
+            FALSE "Start TopSolid'Update and record (the report is made when you close it)" update \
+            FALSE "Only collect the logs" logs 2>/dev/null)" || { rm -f "$REPORT_DESC"; return 0; }
+        case "$choice" in
+            topsolid) exec "$0" record ;;
+            update)   exec "$0" record update ;;
+        esac
+    fi
+    report_done "$(make_report "" gl)"
+    # glinfo started the prefix and its services
+    stop_services
+}
+
+# with "record" in front, TopSolid or TopSolid'Update starts as usual, and closing it makes the report
+start_recording()
+{
+    [ -n "$RECORD" ] || return 0
+    { echo "OpenGL under Wine:"; gl_info | sed 's/^/  /'; } > "$DATA/record.txt"
+    record_load "$DATA/record.txt" &
+    RECORDER=$!
+}
+
+finish_recording()
+{
+    [ -n "$RECORD" ] || return 0
+    kill "$RECORDER" 2>/dev/null
+    report_done "$(make_report)"
+}
+
 mkdir -p "$DATA"
+# the log of every start: keep the end of a big one (in place, a running TopSolid keeps writing to it)
+if [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 50000000 ]; then
+    tail -c 10000000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG"; rm -f "$LOG.tmp"
+fi
+RECORD="" RECORDER=""
+if [ "${1:-}" = record ]; then
+    RECORD=1; shift
+    export WINEDEBUG="+timestamp,$WINEDEBUG"
+fi
 exec 2> >(tee -a "$LOG" >&2)
 # stopping the services ends with wineserver -k: wait for a stop in progress, or it kills what starts now
 [ "${1:-}" = stop ] || flock -w 120 "$DATA/.stop.lock" true 2>/dev/null
@@ -572,13 +764,14 @@ setup_crash_dumps
 
 case "${1:-}" in
     "")           apply_scale; apply_formats; wait_for_pdm; start_unstick
-                  splash "# Starting TopSolid..."; splash "watch topsolid.exe"; start_update_check
-                  run "$TOPSOLID\\TopSolid.exe"; ret=$?
+                  splash "# Starting TopSolid..."; splash "watch topsolid.exe"; start_update_check; start_recording
+                  run "$TOPSOLID\\TopSolid.exe"; ret=$?; finish_recording
                   # a question about an update that is still open, or the update itself
                   [ -n "$UPDATE_CHECK" ] && wait "$UPDATE_CHECK"
                   exit $ret ;;
     update)       apply_scale; apply_formats; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
-                  run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe" ;;
+                  start_recording
+                  run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe"; finish_recording ;;
     license-tool) apply_scale; apply_formats; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"
                   run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
@@ -596,5 +789,6 @@ case "${1:-}" in
                   bash; stop_services ;;
     stop)         stop_services ;;
     debug)        debug_program "${2:-}" ;;
+    report)       report_problem ;;
     *)            msg "unknown command $1"; exit 1 ;;
 esac
