@@ -46,19 +46,18 @@ add_action()  # DESKTOPFILE COMMAND ID NAME ARG
     case "$ADDED_ACTIONS" in *"$4"*) ;; *) ADDED_ACTIONS="${ADDED_ACTIONS:+$ADDED_ACTIONS, }$4" ;; esac
 }
 
-# TopSolid starts on the NVIDIA GPU of a hybrid laptop: the app menu then offers the integrated one (1.6.28)
-prefer_discrete_gpu()  # DESKTOPFILE
+# the app menu starts TopSolid on the integrated GPU and offers the discrete one, GNOME's default
+# (1.6.28 to 1.6.35 had it the other way round)
+default_gpu()  # DESKTOPFILE
 {
-    grep -qs '^PrefersNonDefaultGPU=' "$1" && return 0
-    grep -qs '^\[Desktop Entry\]' "$1" || return 0
-    sed -i '/^\[Desktop Entry\]/a PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true' "$1"
+    sed -i '/^PrefersNonDefaultGPU=true$/d; /^X-KDE-RunOnDiscreteGpu=true$/d' "$1"
 }
 
 # what app menu entries made by older versions don't have: "Check for TopSo'Linux updates" (1.6.15),
-# "SpaceMouse settings" (1.6.21), the GPU choice (1.6.28) and "Report a problem" (1.6.30)
+# "SpaceMouse settings" (1.6.21), "Report a problem" (1.6.30), and the GPU default (1.6.36)
 add_update_action()  # DESKTOPFILE COMMAND
 {
-    prefer_discrete_gpu "$1"
+    default_gpu "$1"
     add_action "$1" "$2" topsolinux "Check for TopSo'Linux updates" topsolinux-update
     add_action "$1" "$2" spacemouse "SpaceMouse settings" spacemouse
     add_action "$1" "$2" report "Report a problem" report

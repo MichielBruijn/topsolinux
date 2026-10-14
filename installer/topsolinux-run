@@ -165,20 +165,14 @@ find_version()
     USERCONFIG="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/AppData/Roaming/TOPSOLID/TopSolid/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
 }
 
-setup_gpu()  # COMMAND
+setup_gpu()
 {
-    local mode="${TOPSOLID_GPU:-auto}" vendors
+    local mode="${TOPSOLID_GPU:-auto}"
     if [ "$mode" = auto ]; then
+        # a hybrid laptop draws on its integrated GPU; on the NVIDIA one when the app menu's "Launch using
+        # Discrete Graphics Card" (or prime-run) asked for it
         mode=default
-        # hybrid laptop: NVIDIA driver loaded next to an Intel or AMD GPU
-        if [ -d /proc/driver/nvidia ]; then
-            vendors="$(cat /sys/class/drm/card*/device/vendor 2>/dev/null | sort -u)"
-            if echo "$vendors" | grep -q -E '0x8086|0x1002'; then mode=nvidia; fi
-            # "Launch using Integrated Graphics Card": the app menu entry prefers the NVIDIA GPU, yet its variables are
-            # missing (GNOME gives its right-click actions none at all)
-            [ $mode = nvidia ] && [ -z "${1:-}" ] && [ -z "${__NV_PRIME_RENDER_OFFLOAD:-}" ] &&
-                grep -qs '^PrefersNonDefaultGPU=true' "${GIO_LAUNCHED_DESKTOP_FILE:-/dev/null}" && mode=default
-        fi
+        [ -d /proc/driver/nvidia ] && [ "${__NV_PRIME_RENDER_OFFLOAD:-}" = 1 ] && mode=nvidia
     fi
     echo "topsolinux: graphics $mode" >&2
     if [ "$mode" = nvidia ]; then
@@ -793,7 +787,7 @@ if [ -f "$TOOLS/prefix-settings.sh" ]; then
     . "$TOOLS/prefix-settings.sh"
     update_settings || msg "updating the Wine settings to level $SETTINGS_LEVEL failed"
 fi
-setup_gpu "${1:-}"
+setup_gpu
 setup_crash_dumps
 
 case "${1:-}" in
