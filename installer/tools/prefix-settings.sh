@@ -5,7 +5,7 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=3
+SETTINGS_LEVEL=4
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
@@ -14,11 +14,21 @@ settings_1() { :; }
 # sometimes ignored and keys went to another program
 settings_2() { "$WINE" reg add 'HKCU\Software\Wine\X11 Driver' /v UseTakeFocus /d N /f >/dev/null 2>&1; }
 
-# 1.6.33: Wine gives a service 10 seconds to start (Windows 30); SQL Server needs about 7 when the disk
-# is warm, more after a reboot, and was then reported as failed. Wine reads this value as a string
+# 1.6.34: undo 1.6.33's ServicesPipeTimeout of 60 seconds (never released): SQL Server's first start then
+# hung for the whole minute instead of 10 seconds before the starter started it again
 settings_3()
 {
-    "$WINE" reg add 'HKLM\System\CurrentControlSet\Control' /v ServicesPipeTimeout /d 60000 /f >/dev/null 2>&1
+    "$WINE" reg delete 'HKLM\System\CurrentControlSet\Control' /v ServicesPipeTimeout /f >/dev/null 2>&1
+    return 0
+}
+
+# 1.6.34: SQL Server starts SamSs while it starts itself. Wine names the control pipe of a service process
+# after a counter that SamSs's process then moves on, so SQL Server opened SamSs's pipe and its start
+# failed after 10 seconds (the starter's retry started it). Started as a dependency, SamSs runs already
+settings_4()
+{
+    "$WINE" reg add 'HKLM\System\CurrentControlSet\Services\MSSQL$SQLTOPSOLID' /v DependOnService /t REG_MULTI_SZ \
+        /d SamSs /f >/dev/null 2>&1
 }
 
 # the level of the prefix, 0 for one made before levels existed

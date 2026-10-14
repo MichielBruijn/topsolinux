@@ -25,8 +25,6 @@ Windows Registry Editor Version 5.00
 [HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSSQL15.SQLTOPSOLID\MSSQLServer\SuperSocketNetLib\Tcp]
 "Enabled"=dword:00000001
 
-[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control]
-"ServicesPipeTimeout"="60000"
-
 [HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\MSSQL$SQLTOPSOLID]
 "Start"=dword:00000002
+"DependOnService"=hex(7):53,00,61,00,6d,00,53,00,73,00,00,00,00,00

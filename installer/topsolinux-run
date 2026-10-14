@@ -566,6 +566,9 @@ record_load()  # FILE
             echo "=== $(date +%T)"
             # the second round of top measures the last second; its first lines are the totals
             top -H -b -n2 -d1 -w 160 -p "$pid" | awk '/^top -/ { n++ } n == 2' | sed -n '1p;7,17p'
+            # memory in MB of the processes that can grow
+            ps -u "$(id -u)" -o rss=,comm= | awk '$2 ~ /^(TopSolid|sqlservr|wineserver)/ { m[$2] += int($1 / 1024) }
+                END { printf "memory MB:"; for (n in m) printf " %s %d", n, m[n]; print "" }'
             [ -d /proc/driver/nvidia ] && nvidia-smi --format=csv,noheader \
                 --query-gpu=pstate,clocks.gr,power.draw,utilization.gpu 2>/dev/null | sed 's/^/NVIDIA: /'
         } >> "$1"
