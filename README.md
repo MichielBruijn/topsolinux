@@ -144,7 +144,8 @@ region new documents use millimetres. To set them yourself, start `regedit` and 
 values changed there are kept.
 
 Environment variables: `TOPSOLID_SCALE=150` (same as `scale`), `TOPSOLID_GPU=nvidia|default`
-(laptops with NVIDIA and Intel/AMD graphics use the NVIDIA GPU automatically).
+(laptops with NVIDIA and Intel/AMD graphics use the NVIDIA GPU automatically; the app menu offers the
+integrated one), `TOPSOLID_GL=native` (Intel graphics: Intel's own OpenGL driver instead of zink).
 
 Resize a window: hold Super and drag with the middle mouse button, or press Alt+F8.
 
