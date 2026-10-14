@@ -15,8 +15,15 @@ class Program
         foreach (var thread in runtime.Threads.Where(t => t.IsAlive))
         {
             Console.WriteLine($"--- thread {thread.OSThreadId:x4} (managed {thread.ManagedThreadId})");
+            string last = "";
             foreach (var frame in thread.EnumerateStackTrace().Take(80))
-                Console.WriteLine($"  {frame.InstructionPointer:x12} {frame.Method?.Signature ?? frame.FrameName ?? "?"}");
+            {
+                var line = $"  {frame.InstructionPointer:x12} {frame.Method?.Signature ?? frame.FrameName ?? "?"}";
+                // under Wine the walk can get stuck on one frame (a stub shares the address of its method, not its name)
+                if (line == last) break;
+                last = line;
+                Console.WriteLine(line);
+            }
         }
         return 0;
     }
