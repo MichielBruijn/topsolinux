@@ -84,6 +84,8 @@ story = [
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
             '<i>SpaceMouse settings</i>, <i>Wine settings</i>, <i>Stop background services</i> and <i>Check for TopSo\'Linux updates</i>, which '
             'updates the AppImage to the newest TopSo\'Linux. TopSolid also looks for one once a day when it starts.',
+            '<i>Report a problem</i> makes a zip in your Downloads folder with the logs and what the computer has, to send '
+            'to whoever helps you. It can record TopSolid or TopSolid\'Update while the problem happens.',
             'Another computer: copy the AppImage there and start it, and choose <i>Install</i> (app menu, with Gear Lever) or <i>Launch</i>. The first start sets TopSolid up in '
             + c('~/.local/share/topsolinux') + ', which takes a few minutes. Each computer needs its own license.',
             'Only use it on computers you are licensed for, and do not publish it: it contains TopSolid, SQL Server '
@@ -119,6 +121,7 @@ table = Table([[Paragraph(c(a), cell), Paragraph(b, cell)] for a, b in [
     ('license FILE', 'install a license file'),
     ('stop', 'stop SQL Server, the PDM and the license server'),
     ('debug', 'TopSolid hangs: write its stacks to a file in your home folder, for a bug report'),
+    ('report', 'a zip with the logs for a problem report (same as <i>Report a problem</i>)'),
 ]], colWidths=[40 * mm, 130 * mm])
 table.setStyle(TableStyle([
     ('FONT', (0, 0), (-1, -1), 'Helvetica', 9),

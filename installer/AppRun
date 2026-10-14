@@ -641,7 +641,7 @@ Terminal=false
 StartupWMClass=topsolid.exe
 PrefersNonDefaultGPU=true
 X-KDE-RunOnDiscreteGpu=true
-Actions=update;license;spacemouse;winecfg;stop;topsolinux;
+Actions=update;license;spacemouse;winecfg;stop;topsolinux;report;
 
 [Desktop Action update]
 Name=TopSolid'Update
@@ -666,6 +666,10 @@ Exec=AppRun stop
 [Desktop Action topsolinux]
 Name=Check for TopSo'Linux updates
 Exec=AppRun topsolinux-update
+
+[Desktop Action report]
+Name=Report a problem
+Exec=AppRun report
 EOF
 }
 

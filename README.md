@@ -118,7 +118,8 @@ options if you want it.
 ## Everyday use
 
 Right-click TopSolid's icon in the app menu for TopSolid'Update, the license tool, *SpaceMouse settings*,
-Wine settings, *Stop background services* and *Check for TopSo'Linux updates*. The AppImage also accepts commands:
+Wine settings, *Stop background services*, *Check for TopSo'Linux updates* and *Report a problem*. The AppImage
+also accepts commands:
 
 | Command | |
 |---|---|
@@ -133,6 +134,8 @@ Wine settings, *Stop background services* and *Check for TopSo'Linux updates*. T
 | `topsolinux-update` | update this AppImage to the newest TopSo'Linux release, if there is one |
 | `update-check off` | don't look for TopSo'Linux updates at start (`on`: once a day again, the default) |
 | `debug` | TopSolid hangs or typing goes nowhere: write its windows, keyboard focus and stacks to `~/topsolid-debug-….txt` for a bug report (stops nothing) |
+| `report` | make `~/Downloads/topsolid-report-….zip` with the logs, the system, the GPU and OpenGL driver; asks to record TopSolid (or TopSolid'Update) while the problem happens. No drawings, projects or license in it, their names can show up in the logs |
+| `record`, `record update` | start TopSolid or TopSolid'Update with timestamps in the log and its load measured; closing it makes the report |
 | `winecfg`, `regedit`, `shell` | Wine tools, for troubleshooting |
 
 TopSolid follows the scale of your desktop by itself, unless you set one with `scale` or in Wine's settings.
