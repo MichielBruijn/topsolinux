@@ -148,7 +148,7 @@ values changed there are kept.
 
 Environment variables: `TOPSOLID_SCALE=150` (same as `scale`), `TOPSOLID_GPU=nvidia|default`
 (laptops with NVIDIA and Intel/AMD graphics use the integrated GPU; right-click TopSolid in the app menu
-for *Launch using Discrete Graphics Card*), `TOPSOLID_GL=native` (Intel graphics: Intel's own OpenGL driver instead of zink).
+for *Launch using Discrete Graphics Card*), `TOPSOLID_GL=zink` (Intel graphics: OpenGL through Intel's Vulkan driver; cut faces are not hatched).
 
 Resize a window: hold Super and drag with the middle mouse button, or press Alt+F8.
 

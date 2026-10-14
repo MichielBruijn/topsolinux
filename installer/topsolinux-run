@@ -17,7 +17,7 @@
 #   topsolinux-update update this TopSolid AppImage with the newest TopSo'Linux from GitHub, if there is one
 #   update-check on|off  whether TopSolid looks for a newer TopSo'Linux when it starts (once a day; on)
 #
-# environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_GL=native (Intel: not zink), TOPSOLID_SCALE=PERCENT,
+# environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_GL=zink|native (Intel: zink, or iris without reemit), TOPSOLID_SCALE=PERCENT,
 #              TOPSOLINUX_UPDATE_CHECK=0 (no update check at start),
 #              TOPSOLINUX_HOME (default ~/.local/share/topsolinux)
 #
@@ -182,11 +182,16 @@ setup_gpu()
     fi
     # explicit sync lands the frame after Wine copied the 3D view: a delete showed up one frame late
     [ -d /proc/driver/nvidia ] && export __NV_X11_DISABLE_EXPLICIT_SYNC="${__NV_X11_DISABLE_EXPLICIT_SYNC:-1}"
-    # Intel's OpenGL driver (iris) drew a black bar in an assembly; zink (OpenGL on Intel's Vulkan driver) draws it right
-    if [ "$mode" != nvidia ] && [ "${TOPSOLID_GL:-zink}" = zink ] && [ "$(primary_gpu_vendor)" = 0x8086 ] &&
-        compgen -G '/usr/share/vulkan/icd.d/intel_icd*.json' >/dev/null; then
-        export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
-        echo "topsolinux: OpenGL through zink (TOPSOLID_GL=native for Intel's own driver)" >&2
+    # Intel's OpenGL driver (iris) left out state between TopSolid's indirect draws: an edge drawn with another
+    # part's transform made a black bar in an assembly. reemit sends all state each draw, which costs nothing
+    # measurable here. zink draws it right too but has no polygon stipple: black instead of hatched cut faces.
+    if [ "$mode" != nvidia ] && [ "$(primary_gpu_vendor)" = 0x8086 ]; then
+        if [ "${TOPSOLID_GL:-}" = zink ] && compgen -G '/usr/share/vulkan/icd.d/intel_icd*.json' >/dev/null; then
+            export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
+            echo "topsolinux: OpenGL through zink" >&2
+        elif [ "${TOPSOLID_GL:-}" != native ]; then
+            export INTEL_DEBUG="${INTEL_DEBUG:+$INTEL_DEBUG,}reemit"
+        fi
     fi
 }
 
@@ -569,7 +574,7 @@ record_load()  # FILE
     done
 }
 
-GPU_VARS='^(__NV_PRIME_RENDER_OFFLOAD|__GLX_VENDOR_LIBRARY_NAME|__VK_LAYER_NV_optimus|__EGL_VENDOR_LIBRARY_FILENAMES|__NV_X11_[A-Z_]*|MESA_[A-Z_]*|DRI_PRIME|VK_LOADER_DRIVERS_SELECT|WINEDEBUG|TOPSOLID_[A-Z_]*)='
+GPU_VARS='^(__NV_PRIME_RENDER_OFFLOAD|__GLX_VENDOR_LIBRARY_NAME|__VK_LAYER_NV_optimus|__EGL_VENDOR_LIBRARY_FILENAMES|__NV_X11_[A-Z_]*|MESA_[A-Z_]*|INTEL_DEBUG|DRI_PRIME|VK_LOADER_DRIVERS_SELECT|WINEDEBUG|TOPSOLID_[A-Z_]*)='
 
 # the GPU variables TopSolid runs with; this script's own when it doesn't run
 gpu_env()
