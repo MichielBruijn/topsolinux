@@ -512,10 +512,17 @@ start_update_check()
 
 stop_services()
 {
-    local svc
+    local svc i
     # held until this script exits, a start waits for it (see below)
     exec 9>"$DATA/.stop.lock"
     flock 9
+    # a SQL Server that is still starting would be killed halfway (net stop can't stop it yet)
+    if pgrep -u "$(id -u)" -f 'sqlservr\.exe' >/dev/null; then
+        for i in $(seq 30); do
+            "$WINE" sc query 'MSSQL$SQLTOPSOLID' 2>/dev/null 9>&- | grep -q START_PENDING || break
+            sleep 2
+        done
+    fi
     for svc in "$PDM_SERVICE" 'MSSQL$SQLTOPSOLID' "Sentinel RMS License Manager"; do
         "$WINE" net stop "$svc" >/dev/null 2>&1 9>&-
     done
