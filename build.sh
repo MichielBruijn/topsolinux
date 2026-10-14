@@ -23,6 +23,8 @@ rm -rf "$DIR"
 mkdir -p "$DIR/usr" "$TOOLS/bin" "$TOOLS/lib" "$DIR/usr/share/topsolinux" "$DIR/usr/share/doc/topsolinux"
 cp -a "$WINE_DIST/usr/bin" "$WINE_DIST/usr/lib" "$WINE_DIST/usr/share" "$DIR/usr/"
 rm -rf "$DIR/usr/lib/ntlm_auth" "$DIR/usr/lib/topsolinux.old"
+# also after an incremental Wine build (make install-lib) that skipped it
+"$TOP/wine/strip-wine.sh" "$DIR"
 
 # --- a binary with the shared libraries it needs, except the C library (always taken from the system)
 bundle()  # BINARY DESTBIN DESTLIB

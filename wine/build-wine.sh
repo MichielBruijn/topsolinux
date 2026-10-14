@@ -30,8 +30,5 @@ make -j"$(nproc)"
 rm -rf "$OUT/usr"
 make install-lib DESTDIR="$OUT" >/dev/null
 
-# debug info makes Wine several times larger
-find "$OUT/usr" -type f \( -name '*.so' -o -path '*/bin/*' \) -exec strip --strip-debug {} + 2>/dev/null || true
-find "$OUT/usr/lib/wine/x86_64-windows" -type f -exec x86_64-w64-mingw32-strip --strip-debug {} + 2>/dev/null || true
-find "$OUT/usr/lib/wine/i386-windows" -type f -exec i686-w64-mingw32-strip --strip-debug {} + 2>/dev/null || true
+"$HERE/strip-wine.sh" "$OUT"
 du -sh "$OUT/usr"
