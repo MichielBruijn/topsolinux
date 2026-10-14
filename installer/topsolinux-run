@@ -661,9 +661,14 @@ report_problem()
 {
     local choice state=""
     if gui; then
-        zenity --forms --title="$(app_name)" --window-icon="$ICON" --width=560 --text="Report a problem" \
-            --add-multiline-entry="What goes wrong, and what did you do just before?" > "$REPORT_DESC" 2>/dev/null ||
-            { rm -f "$REPORT_DESC"; return 0; }
+        python3 "$TOOLS/report-text.py" "$(app_name)" "$ICON" > "$REPORT_DESC" 2>>"$LOG"
+        case $? in
+            0) ;;
+            2) zenity --forms --title="$(app_name)" --window-icon="$ICON" --width=560 --text="Report a problem" \
+                   --add-multiline-entry="What goes wrong, and what did you do just before?" > "$REPORT_DESC" 2>/dev/null ||
+                   { rm -f "$REPORT_DESC"; return 0; } ;;
+            *) rm -f "$REPORT_DESC"; return 0 ;;
+        esac
     fi
     if topsolid_running; then
         if tell question "TopSolid is running. When it is slow or stuck right now, the report can show what it does.\n\nRecord TopSolid for 20 seconds? Do the slow thing during that time."; then
