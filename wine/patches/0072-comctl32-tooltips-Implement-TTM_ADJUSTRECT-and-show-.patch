@@ -1,0 +1,92 @@
+From 7112aa1d65171e46af3ba0e4c563a715b6af642e Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Wed, 14 Oct 2026 18:33:25 +0200
+Subject: [PATCH] comctl32/tooltips: Implement TTM_ADJUSTRECT, and show a tip
+ after its tool was replaced.
+
+WinForms (TopSolid) sends TTM_ADJUSTRECT, which was not handled. When
+the tool under the cursor is deleted and the cursor is on a tool again
+when the leave timer expires, start the show timer instead of only
+logging "How did this happen?": the tip did not show then.
+---
+ dlls/comctl32/tooltips.c | 43 +++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 40 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/comctl32/tooltips.c b/dlls/comctl32/tooltips.c
+index eaf7285a604..162820c368b 100644
+--- a/dlls/comctl32/tooltips.c
++++ b/dlls/comctl32/tooltips.c
+@@ -32,7 +32,6 @@
+  *   - Animation.
+  *   - Links.
+  *   - Messages:
+- *     o TTM_ADJUSTRECT
+  *     o TTM_GETTITLEA
+  *     o TTM_GETTTILEW
+  *     o TTM_POPUP
+@@ -1481,6 +1480,38 @@ TOOLTIPS_NewToolRectT (TOOLTIPS_INFO *infoPtr, const TTTOOLINFOW *ti)
+ }
+ 
+ 
++/* the window rectangle of a tip from the rectangle of its text (larger), or the other way round */
++static LRESULT
++TOOLTIPS_AdjustRect (const TOOLTIPS_INFO *infoPtr, BOOL larger, RECT *rect)
++{
++    DWORD style = GetWindowLongW (infoPtr->hwndSelf, GWL_STYLE);
++    INT margin = (style & TTS_BALLOON) ? BALLOON_TEXT_MARGIN : NORMAL_TEXT_MARGIN;
++    RECT frame = {0, 0, 0, 0};
++
++    if (!rect) return FALSE;
++    AdjustWindowRectEx (&frame, style, FALSE, GetWindowLongW (infoPtr->hwndSelf, GWL_EXSTYLE));
++    frame.left   -= margin + infoPtr->rcMargin.left;
++    frame.top    -= margin + infoPtr->rcMargin.top;
++    frame.right  += margin + infoPtr->rcMargin.right;
++    frame.bottom += margin + infoPtr->rcMargin.bottom;
++    if (larger)
++    {
++        rect->left   += frame.left;
++        rect->top    += frame.top;
++        rect->right  += frame.right;
++        rect->bottom += frame.bottom;
++    }
++    else
++    {
++        rect->left   -= frame.left;
++        rect->top    -= frame.top;
++        rect->right  -= frame.right;
++        rect->bottom -= frame.bottom;
++    }
++    return TRUE;
++}
++
++
+ static inline LRESULT
+ TOOLTIPS_Pop (TOOLTIPS_INFO *infoPtr)
+ {
+@@ -2050,8 +2081,11 @@ TOOLTIPS_Timer (TOOLTIPS_INFO *infoPtr, INT iTimer)
+ 	    if(infoPtr->nTool == -1) { /* Moved out of all tools */
+ 	        TOOLTIPS_Hide(infoPtr);
+ 		KillTimer(infoPtr->hwndSelf, ID_TIMERLEAVE);
+-	    } else if (nOldTool == -1) { /* Moved from outside */
+-	        ERR("How did this happen?\n");
++	    } else if (nOldTool == -1) { /* the tool under the cursor was deleted, and one is there again */
++	        TOOLTIPS_Hide (infoPtr);
++		KillTimer(infoPtr->hwndSelf, ID_TIMERLEAVE);
++		if(infoPtr->bActive)
++		    SetTimer (infoPtr->hwndSelf, ID_TIMERSHOW, infoPtr->nReshowTime, 0);
+ 	    } else { /* Moved from one to another */
+ 	        TOOLTIPS_Hide (infoPtr);
+ 		KillTimer(infoPtr->hwndSelf, ID_TIMERLEAVE);
+@@ -2133,6 +2167,9 @@ TOOLTIPS_WindowProc (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+ 	case TTM_ADDTOOLW:
+ 	    return TOOLTIPS_AddToolT (infoPtr, (LPTTTOOLINFOW)lParam, uMsg == TTM_ADDTOOLW);
+ 
++	case TTM_ADJUSTRECT:
++	    return TOOLTIPS_AdjustRect (infoPtr, (BOOL)wParam, (RECT *)lParam);
++
+ 	case TTM_DELTOOLA:
+ 	case TTM_DELTOOLW:
+ 	    return TOOLTIPS_DelToolT (infoPtr, (LPTOOLINFOW)lParam,
+-- 
+2.53.0
+
