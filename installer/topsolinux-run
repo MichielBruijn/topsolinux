@@ -184,7 +184,7 @@ setup_gpu()
     [ -d /proc/driver/nvidia ] && export __NV_X11_DISABLE_EXPLICIT_SYNC="${__NV_X11_DISABLE_EXPLICIT_SYNC:-1}"
     # Intel's OpenGL driver (iris) lets the GPU generate the draws of a multi-draw with 100 or more, and the
     # next draw then still reads the last of their gl_DrawIDs: an edge drawn with another part's transform and
-    # color made a black bar in an assembly. The CPU loop iris uses below the threshold costs nothing measurable.
+    # color made a black bar in an assembly (https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16588). The CPU loop iris uses below the threshold costs nothing measurable.
     # zink draws it right too, but has no polygon stipple (until Mesa 26.3): black instead of hatched cut faces.
     if [ "$mode" != nvidia ] && [ "$(primary_gpu_vendor)" = 0x8086 ]; then
         if [ "${TOPSOLID_GL:-}" = zink ] && compgen -G '/usr/share/vulkan/icd.d/intel_icd*.json' >/dev/null; then
