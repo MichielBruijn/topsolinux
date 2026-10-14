@@ -165,7 +165,7 @@ find_version()
     USERCONFIG="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/AppData/Roaming/TOPSOLID/TopSolid/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
 }
 
-setup_gpu()
+setup_gpu()  # COMMAND
 {
     local mode="${TOPSOLID_GPU:-auto}" vendors
     if [ "$mode" = auto ]; then
@@ -174,8 +174,9 @@ setup_gpu()
         if [ -d /proc/driver/nvidia ]; then
             vendors="$(cat /sys/class/drm/card*/device/vendor 2>/dev/null | sort -u)"
             if echo "$vendors" | grep -q -E '0x8086|0x1002'; then mode=nvidia; fi
-            # "Launch using Integrated Graphics Card": the app menu entry prefers the NVIDIA GPU, yet its variables are missing
-            [ $mode = nvidia ] && [ -z "${__NV_PRIME_RENDER_OFFLOAD:-}" ] &&
+            # "Launch using Integrated Graphics Card": the app menu entry prefers the NVIDIA GPU, yet its variables are
+            # missing (GNOME gives its right-click actions none at all)
+            [ $mode = nvidia ] && [ -z "${1:-}" ] && [ -z "${__NV_PRIME_RENDER_OFFLOAD:-}" ] &&
                 grep -qs '^PrefersNonDefaultGPU=true' "${GIO_LAUNCHED_DESKTOP_FILE:-/dev/null}" && mode=default
         fi
     fi
@@ -564,8 +565,25 @@ record_load()  # FILE
     done
 }
 
-# which OpenGL driver Wine gives TopSolid, with the same environment
-gl_info() { [ -f "$TOOLS/glinfo.exe" ] && "$WINE" "$TOOLS/glinfo.exe" 2>/dev/null | tr -d '\r'; }
+GPU_VARS='^(__NV_PRIME_RENDER_OFFLOAD|__GLX_VENDOR_LIBRARY_NAME|__VK_LAYER_NV_optimus|__EGL_VENDOR_LIBRARY_FILENAMES|__NV_X11_[A-Z_]*|MESA_[A-Z_]*|DRI_PRIME|VK_LOADER_DRIVERS_SELECT|WINEDEBUG|TOPSOLID_[A-Z_]*)='
+
+# the GPU variables TopSolid runs with; this script's own when it doesn't run
+gpu_env()
+{
+    local pid
+    pid="$(topsolid_pid)"
+    if [ -n "$pid" ]; then tr '\0' '\n' < "/proc/$pid/environ"; else env; fi 2>/dev/null | grep -E "$GPU_VARS"
+}
+
+# which OpenGL driver Wine gives TopSolid: with the GPU variables of the running TopSolid
+gl_info()
+{
+    local v unset=() set=()
+    [ -f "$TOOLS/glinfo.exe" ] || return 0
+    for v in $(env | grep -oE "$GPU_VARS" | tr -d =); do unset+=(-u "$v"); done
+    mapfile -t set < <(gpu_env)
+    env "${unset[@]}" "${set[@]}" "$WINE" "$TOOLS/glinfo.exe" 2>/dev/null | tr -d '\r'
+}
 
 system_info()  # [gl]: also which OpenGL driver Wine uses (starts the prefix)
 {
@@ -589,7 +607,7 @@ system_info()  # [gl]: also which OpenGL driver Wine uses (starts the prefix)
     done
     command -v lspci >/dev/null && lspci -nn | grep -E 'VGA|3D|Display'
     [ -f /proc/driver/nvidia/version ] && head -1 /proc/driver/nvidia/version
-    echo "environment: $(env | grep -E '^(TOPSOLID_|TOPSOLINUX_|__NV|__GL|__EGL|MESA|DRI_PRIME|WINE)' | tr '\n' ' ')"
+    echo "TopSolid's GPU variables: $(gpu_env | tr '\n' ' ')"
     [ "${1:-}" = gl ] && { echo "OpenGL under Wine:"; gl_info | sed 's/^/  /'; }
     echo; echo "=== screens"
     command -v xrandr >/dev/null && xrandr --listmonitors 2>/dev/null
@@ -674,15 +692,16 @@ report_problem()
         if tell question "TopSolid is running. When it is slow or stuck right now, the report can show what it does.\n\nRecord TopSolid for 20 seconds? Do the slow thing during that time."; then
             rm -f "$DATA/record.txt"
             record_load "$DATA/record.txt" & local rec=$!
+            state="$(mktemp)"
+            # the stacks halfway, while the slow thing happens
+            record_stacks() { sleep 8; program_state TopSolid > "$state" 2>&1 || program_state TopSolid.Update > "$state" 2>&1; sleep 6; }
             if gui; then
-                sleep 20 | zenity --progress --pulsate --auto-close --no-cancel --title="$(app_name)" \
+                record_stacks | zenity --progress --pulsate --auto-close --no-cancel --title="$(app_name)" \
                     --text="Recording TopSolid for 20 seconds..." 2>/dev/null
             else
-                sleep 20
+                record_stacks
             fi
             kill "$rec" 2>/dev/null
-            state="$(mktemp)"
-            program_state TopSolid > "$state" 2>&1 || program_state TopSolid.Update > "$state" 2>&1
         fi
         report_done "$(make_report "${state:-}" gl)"
         [ -n "${state:-}" ] && rm -f "$state"
@@ -764,7 +783,7 @@ if [ -f "$TOOLS/prefix-settings.sh" ]; then
     . "$TOOLS/prefix-settings.sh"
     update_settings || msg "updating the Wine settings to level $SETTINGS_LEVEL failed"
 fi
-setup_gpu
+setup_gpu "${1:-}"
 setup_crash_dumps
 
 case "${1:-}" in
