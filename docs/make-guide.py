@@ -61,8 +61,8 @@ story = [
             'The TopSolid installation media (the folder with ' + c('Setup.exe') + '), or let the installer '
             'download them from TopSolid\'s server (19 GB).',
             'About 45 GB of free disk space (65 GB when downloading) and an internet connection.',
-            'A GPU with a working OpenGL driver. Laptops with NVIDIA and Intel/AMD graphics use the NVIDIA GPU '
-            'automatically; right-click TopSolid in the app menu to start it on the integrated GPU.'),
+            'A GPU with a working OpenGL driver. Laptops with NVIDIA and Intel/AMD graphics use the integrated GPU; '
+            'right-click TopSolid in the app menu and choose <i>Launch using Discrete Graphics Card</i> for the NVIDIA one.'),
 
     Paragraph('2. Installing', h2),
     bullets('Download the newest ' + c('TopSoLinux-Installer-&lt;version&gt;-x86_64.AppImage') + ' from the '
