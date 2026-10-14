@@ -62,7 +62,7 @@ story = [
             'download them from TopSolid\'s server (19 GB).',
             'About 45 GB of free disk space (65 GB when downloading) and an internet connection.',
             'A GPU with a working OpenGL driver. Laptops with NVIDIA and Intel/AMD graphics use the NVIDIA GPU '
-            'automatically.'),
+            'automatically; right-click TopSolid in the app menu to start it on the integrated GPU.'),
 
     Paragraph('2. Installing', h2),
     bullets('Download the newest ' + c('TopSoLinux-Installer-&lt;version&gt;-x86_64.AppImage') + ' from the '

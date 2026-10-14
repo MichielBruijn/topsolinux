@@ -185,6 +185,22 @@ setup_gpu()
     fi
     # explicit sync lands the frame after Wine copied the 3D view: a delete showed up one frame late
     [ -d /proc/driver/nvidia ] && export __NV_X11_DISABLE_EXPLICIT_SYNC="${__NV_X11_DISABLE_EXPLICIT_SYNC:-1}"
+    # Intel's OpenGL driver (iris) drew a black bar in an assembly; zink (OpenGL on Intel's Vulkan driver) draws it right
+    if [ "$mode" != nvidia ] && [ "${TOPSOLID_GL:-zink}" = zink ] && [ "$(primary_gpu_vendor)" = 0x8086 ] &&
+        compgen -G '/usr/share/vulkan/icd.d/intel_icd*.json' >/dev/null; then
+        export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
+        echo "topsolinux: OpenGL through zink (TOPSOLID_GL=native for Intel's own driver)" >&2
+    fi
+}
+
+# the vendor of the GPU that drives the screens (and draws for programs that don't ask for another one)
+primary_gpu_vendor()
+{
+    local c
+    for c in /sys/class/drm/card*; do
+        case "${c##*/}" in *-*) continue ;; esac
+        [ "$(cat "$c/device/boot_vga" 2>/dev/null)" = 1 ] && { cat "$c/device/vendor"; return; }
+    done
 }
 
 pdm_state()
