@@ -1,0 +1,81 @@
+From 01dadfbb9c70ad3ef454d1c65a832f9967326e81 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Fri, 16 Oct 2026 00:29:24 +0200
+Subject: [PATCH] gdiplus: Fill horizontal and vertical linear gradients per
+ row or column.
+
+A linear gradient that only changes along one axis was computed pixel
+by pixel, with a division per pixel. TopSolid fills its panels with
+such gradients on every step of a splitter drag, which made resizing a
+side panel sluggish. Also copy opaque pixels as they are when
+premultiplying.
+---
+ dlls/gdiplus/gdiplus.c  |  7 +++++++
+ dlls/gdiplus/graphics.c | 29 ++++++++++++++++++++++++++---
+ 2 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/gdiplus/gdiplus.c b/dlls/gdiplus/gdiplus.c
+index 1dbb96349be..f30817de080 100644
+--- a/dlls/gdiplus/gdiplus.c
++++ b/dlls/gdiplus/gdiplus.c
+@@ -453,6 +453,13 @@ void convert_32bppARGB_to_32bppPARGB(UINT width, UINT height,
+         for (x=0; x<width; x++)
+         {
+             BYTE alpha=src[3];
++            if (alpha == 0xff)
++            {
++                memcpy(dst, src, 4);
++                dst += 4;
++                src += 4;
++                continue;
++            }
+             *dst++ = (*src++ * alpha + 127) / 255;
+             *dst++ = (*src++ * alpha + 127) / 255;
+             *dst++ = (*src++ * alpha + 127) / 255;
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+index 1b32e638bdd..ae87c837d6b 100644
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -1421,13 +1421,36 @@ static GpStatus brush_fill_pixels(GpGraphics *graphics, GpBrush *brush,
+             REAL x_delta = draw_points[1].X - draw_points[0].X;
+             REAL y_delta = draw_points[2].X - draw_points[0].X;
+ 
+-            for (y=0; y<fill_area->Height; y++)
++            if (x_delta == 0.0f)
++            {
++                /* the colour only changes from row to row */
++                for (y=0; y<fill_area->Height; y++)
++                {
++                    ARGB color = blend_line_gradient(fill, draw_points[0].X + y * y_delta);
++
++                    for (x=0; x<fill_area->Width; x++)
++                        argb_pixels[x + y*cdwStride] = color;
++                }
++            }
++            else if (y_delta == 0.0f)
+             {
++                /* every row is the same */
+                 for (x=0; x<fill_area->Width; x++)
++                    argb_pixels[x] = blend_line_gradient(fill, draw_points[0].X + x * x_delta);
++
++                for (y=1; y<fill_area->Height; y++)
++                    memcpy(argb_pixels + y*cdwStride, argb_pixels, fill_area->Width * sizeof(DWORD));
++            }
++            else
++            {
++                for (y=0; y<fill_area->Height; y++)
+                 {
+-                    REAL pos = draw_points[0].X + x * x_delta + y * y_delta;
++                    for (x=0; x<fill_area->Width; x++)
++                    {
++                        REAL pos = draw_points[0].X + x * x_delta + y * y_delta;
+ 
+-                    argb_pixels[x + y*cdwStride] = blend_line_gradient(fill, pos);
++                        argb_pixels[x + y*cdwStride] = blend_line_gradient(fill, pos);
++                    }
+                 }
+             }
+         }
+-- 
+2.53.0
+
