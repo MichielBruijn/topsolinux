@@ -1,0 +1,34 @@
+From d3e19b7905476872d6ad589d2f64844bf2632231 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Fri, 16 Oct 2026 01:18:32 +0200
+Subject: [PATCH] opengl32: Succeed in wglShareLists() for contexts that
+ already share.
+
+A context created with a share context already uses the same lists. Windows
+drivers then succeed, even when the destination has objects. Redway, the
+realistic renderer of TopSolid, hosts one window per view and calls
+wglShareLists() for each; from the second window on it failed with
+DRV_CONTEXT_SHARING_ERROR, so realistic rendering and environments were not
+available.
+---
+ dlls/opengl32/wgl.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dlls/opengl32/wgl.c b/dlls/opengl32/wgl.c
+index 72d0cfb774b..2e0be172d5c 100644
+--- a/dlls/opengl32/wgl.c
++++ b/dlls/opengl32/wgl.c
+@@ -1185,6 +1185,10 @@ BOOL WINAPI wglShareLists( HGLRC src_handle, HGLRC dst_handle )
+ 
+     if (!(src_context = context_from_handle( src_handle ))) return FALSE;
+     if (!(dst_context = context_from_handle( dst_handle ))) return FALSE;
++    /* already sharing, as a context created with a share context does: nothing to do, and
++     * Windows drivers succeed even when the destination has objects (Redway calls this for
++     * every window it hosts, all in one share group) */
++    if (src_context->lists == dst_context->lists) return TRUE;
+     if (ReadNoFence( &dst_context->lists->modified )) return FALSE;
+ 
+     if (src_context->base.broken_sharing || dst_context->base.broken_sharing)
+-- 
+2.53.0
+
