@@ -1,0 +1,49 @@
+From 6c7dfb6a42af907d849b40b9f83aff3601a362b8 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Fri, 16 Oct 2026 22:59:29 +0200
+Subject: [PATCH] kernelbase: Implement SetThreadIdealProcessorEx() for
+ processor group 0.
+
+Embree, the ray tracer under TopSolid's Redway, sets the ideal processor of
+its worker threads and fails when this does. Its scenes then could not be
+built, so TopSolid's panorama and background rendering wrote an empty
+image.
+---
+ dlls/kernelbase/thread.c | 21 ++++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/kernelbase/thread.c b/dlls/kernelbase/thread.c
+index 92ef0731435..e194e321c59 100644
+--- a/dlls/kernelbase/thread.c
++++ b/dlls/kernelbase/thread.c
+@@ -573,9 +573,24 @@ DWORD WINAPI DECLSPEC_HOTPATCH SetThreadIdealProcessor( HANDLE thread, DWORD pro
+ BOOL WINAPI DECLSPEC_HOTPATCH SetThreadIdealProcessorEx( HANDLE thread, PROCESSOR_NUMBER *ideal,
+                                                          PROCESSOR_NUMBER *previous )
+ {
+-    FIXME( "(%p %p %p): stub\n", thread, ideal, previous );
+-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    DWORD prev;
++
++    TRACE( "(%p %p %p)\n", thread, ideal, previous );
++
++    /* all processors are in group 0 */
++    if (!ideal || ideal->Group)
++    {
++        SetLastError( ERROR_INVALID_PARAMETER );
++        return FALSE;
++    }
++    if ((prev = SetThreadIdealProcessor( thread, ideal->Number )) == ~0u) return FALSE;
++    if (previous)
++    {
++        previous->Group = 0;
++        previous->Number = prev;
++        previous->Reserved = 0;
++    }
++    return TRUE;
+ }
+ 
+ 
+-- 
+2.53.0
+
