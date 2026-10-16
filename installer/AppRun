@@ -584,6 +584,7 @@ step_finish()
     # Command Prediction trains a neural network in the background all the time (1.4 cores, 10 GB); users can turn it on
     python3 "$TOOLS/userconfig.py" --if-missing "$conf/Config.ConfigData.xml" TopSolid/Kernel/WX/Application \
         EnableCommandPrediction Bool False >> "$LOG" 2>&1
+    hardware_rendering >> "$LOG" 2>&1 || { say "Setting up TopSolid's hardware rendering failed"; return 1; }
     touch "$WINEPREFIX/.topsolinux"
     settings_done
     unlink_desktop
