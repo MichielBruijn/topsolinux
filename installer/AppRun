@@ -585,6 +585,7 @@ step_finish()
     python3 "$TOOLS/userconfig.py" --if-missing "$conf/Config.ConfigData.xml" TopSolid/Kernel/WX/Application \
         EnableCommandPrediction Bool False >> "$LOG" 2>&1
     hardware_rendering >> "$LOG" 2>&1 || { say "Setting up TopSolid's hardware rendering failed"; return 1; }
+    home_drive
     touch "$WINEPREFIX/.topsolinux"
     settings_done
     unlink_desktop
@@ -833,7 +834,7 @@ step_appimage()
     rm -f "$lic" && touch "$lic"
     # links into this machine's home and drives; Wine recreates the folder links for the new user
     find "$c/users/$user" -maxdepth 1 -type l -delete
-    find "$p/dosdevices" -mindepth 1 -maxdepth 1 ! -name c: ! -name z: -delete
+    find "$p/dosdevices" -mindepth 1 -maxdepth 1 ! -name c: ! -name z: ! -name y: -delete
     # the user name is filled in on the first start (sed -i writes new files, the originals stay intact)
     mv "$c/users/$user" "$c/users/$placeholder"
     sed -i "s/$user/$placeholder/g" "$p"/*.reg

@@ -5,7 +5,7 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=5
+SETTINGS_LEVEL=6
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
@@ -50,6 +50,18 @@ hardware_rendering()
 
 # 1.6.40: hardware rendering, also when TopSolid turned it off (see hardware_rendering)
 settings_5() { hardware_rendering; }
+
+# Z: is the home folder, so file dialogs start close to the user's files (Wine's default is /); Y: keeps
+# the rest of the system (USB sticks, mounts) reachable
+home_drive()
+{
+    ln -sfn "$HOME" "$WINEPREFIX/dosdevices/z:" || return 1
+    [ -e "$WINEPREFIX/dosdevices/y:" ] || [ -L "$WINEPREFIX/dosdevices/y:" ] || ln -s / "$WINEPREFIX/dosdevices/y:"
+    return 0
+}
+
+# 1.6.41: Z: is the home folder (see home_drive)
+settings_6() { home_drive; }
 
 # the level of the prefix, 0 for one made before levels existed
 settings_level() { local l; l="$(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"; echo "${l:-0}"; }
