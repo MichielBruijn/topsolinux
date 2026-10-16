@@ -141,6 +141,11 @@ story += [
             'Numbers and units follow the desktop\'s <i>Formats</i>: Dutch formats give a decimal comma and mm. '
             'To change them: ' + c('regedit') + ', ' + c('HKCU\\Control Panel\\International') + ' ('
             + c('sDecimal') + ', ' + c('iMeasure') + ' 0 = metric).',
+            'An environment shows as background only with a <i>Perspective</i> or <i>Conical</i> camera, with '
+            '<i>Environment as Background</i> on (in the render mode menu, per document). With a parallel camera '
+            '(Isometric, Front, ...) the background is one plain colour.',
+            'The OpenCL device list in the display options stays empty: Wine has no OpenCL that shares TopSolid\'s '
+            'OpenGL. Realistic rendering does not need it.',
             'Ubuntu: do not install the package <b>fuse</b>, it removes parts of the desktop. What AppImages need is '
             'already there.'),
 
