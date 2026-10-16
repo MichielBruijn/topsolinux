@@ -5,7 +5,7 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=4
+SETTINGS_LEVEL=5
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
@@ -30,6 +30,26 @@ settings_4()
     "$WINE" reg add 'HKLM\System\CurrentControlSet\Services\MSSQL$SQLTOPSOLID' /v DependOnService /t REG_MULTI_SZ \
         /d SamSs /f >/dev/null 2>&1
 }
+
+# TopSolid's first start turns hardware rendering off on any GPU but NVIDIA or AMD Pro (Intel, Radeon) and
+# draws with its own Mesa on the CPU (bin/mesadrv) instead. Realistic rendering and environments need the GPU,
+# so they were greyed out or left trails. Wine's OpenGL works on Intel and Radeon: the check is done, hardware on.
+hardware_rendering()
+{
+    local d conf
+    for d in "$WINEPREFIX/drive_c/Program Files/TOPSOLID/TopSolid 7."*; do
+        [ -d "$d" ] || continue
+        conf="$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid/${d##*TopSolid }/TopSolid/Kernel/SX"
+        mkdir -p "$conf" &&
+            python3 "$TOOLS/userconfig.py" "$conf/Config.ConfigData.xml" TopSolid/Kernel/WG/Application \
+                GraphicCardCompatibilityCheckDone Bool True &&
+            python3 "$TOOLS/userconfig.py" "$conf/Config.ConfigData.xml" TopSolid/Kernel/GR/GL/State \
+                SoftwareRendering Bool False || return 1
+    done
+}
+
+# 1.6.40: hardware rendering, also when TopSolid turned it off (see hardware_rendering)
+settings_5() { hardware_rendering; }
 
 # the level of the prefix, 0 for one made before levels existed
 settings_level() { local l; l="$(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"; echo "${l:-0}"; }
