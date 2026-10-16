@@ -138,6 +138,8 @@ install_prefix()
         [ -d "$conf" ] && python3 "$TOOLS/userconfig.py" --if-missing "$conf/Config.ConfigData.xml" \
             TopSolid/Kernel/WX/Application EnableCommandPrediction Bool False 2>/dev/null
     done
+    # Z: is the home folder (see home_drive in prefix-settings.sh); the copy has the one of the machine that made it
+    ln -sfn "$HOME" "$WINEPREFIX/dosdevices/z:"
     touch "$MARKER"
 }
 
