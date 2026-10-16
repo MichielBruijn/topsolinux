@@ -740,6 +740,8 @@ update_appimage()  # FILE
         rm -f "$old"
     fi
     echo "$new" > "$DATA/appimage.path"
+    remove_old_appimages "$new"
+    [ -n "$REMOVED" ] && NOTES="$NOTES\n• Older TopSolid AppImages went to the trash:$REMOVED"
     # the app menu entry gets the right-click actions this version added; GNOME reads them at the next login
     add_update_actions "$new"
     [ -n "$ADDED_ACTIONS" ] &&
@@ -902,6 +904,42 @@ remove_installation()
     rm -rf "$WINEPREFIX" "$STATE" "$DATA/appimage-build" "$DATA/appimage.path" "$DATA/topsolid.png"
 }
 
+# Older TopSolid AppImages and their app menu entries: after Replace or Update they would start this
+# installation with their old Wine. They go to the trash, with Gear Lever when it works; app menu entries to
+# a missing AppImage go too. REMOVED lists the AppImages.
+REMOVED=""
+remove_old_appimages()  # [KEEP]
+{
+    local d f
+    gearlever_conf
+    f="$(cat "$DATA/appimage.path" 2>/dev/null)"
+    [ -f "$f" ] && [ "$f" != "${1:-}" ] && "$f" --appimage-offset >/dev/null 2>&1 &&
+        ! grep -qsF "$f" "$HOME/.local/share/applications/"*.desktop && gio trash "$f" 2>>"$LOG" &&
+        REMOVED="$REMOVED\n• <tt>${f/#$HOME/\~}</tt>"
+    while IFS= read -r -d '' d; do
+        grep -qs '^Name=TopSolid' "$d" || continue
+        f="$(grep -m1 -ohiE '/[^ "]*\.appimage' "$d")"
+        [ -n "$f" ] && [ "$f" != "${1:-}" ] || continue
+        # the AppImage that stays gets this entry when it has none
+        if [ -n "${1:-}" ] && ! grep -qsF "$1" "$HOME/.local/share/applications/"*.desktop; then
+            [ -f "$f" ] && gio trash "$f" 2>>"$LOG" && REMOVED="$REMOVED\n• <tt>${f/#$HOME/\~}</tt>"
+            retarget_desktop_files "$f" "$1"
+            echo "${d##*/} starts $1 instead of $f" >> "$LOG"
+            continue
+        fi
+        if [ -f "$f" ]; then
+            gearlever_installed && timeout 60 flatpak run "$GEARLEVER" --remove "$f" -y >> "$LOG" 2>&1
+            [ -f "$f" ] && gio trash "$f" 2>>"$LOG"
+            [ -f "$f" ] && continue
+            REMOVED="$REMOVED\n• <tt>${f/#$HOME/\~}</tt>"
+        fi
+        rm -f "$d"
+        echo "removed $f and ${d##*/}" >> "$LOG"
+    done < <(grep -lisZ topsolid "$HOME/.local/share/applications/"*.desktop)
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
+    return 0
+}
+
 # an existing or interrupted installation: replace, continue or stop
 check_existing()
 {
@@ -911,7 +949,7 @@ check_existing()
             [ $GUI = 1 ] || { echo "TopSolid is already installed in $DATA; use --replace to install it again" >&2; exit 1; }
             local choice
             choice="$(zenity --question --width=560 --title="$TITLE" --window-icon="$ICON" \
-                --text="<b>TopSolid is already installed with $NAME.</b>\n\n<b>Update the AppImage</b>: the TopSolid AppImage gets the Wine and starter of $NAME $TSL_VERSION. Your installation and projects stay.\n\n<b>Replace</b>: install TopSolid again. The installation, its local PDM and the projects in it are removed." \
+                --text="<b>TopSolid is already installed with $NAME.</b>\n\n<b>Update the AppImage</b>: the TopSolid AppImage gets the Wine and starter of $NAME $TSL_VERSION. Your installation and projects stay.\n\n<b>Replace</b>: install TopSolid again. The installation, its local PDM and the projects in it are removed, the old TopSolid AppImages go to the trash." \
                 --ok-label="Update the AppImage" --cancel-label="Cancel" --extra-button="Replace")" && choice=update
             case "$choice" in
                 update)  UPDATE_APPIMAGE=1; return ;;
@@ -919,11 +957,13 @@ check_existing()
                 *)       exit 0 ;;
             esac
         fi
+        remove_old_appimages
         remove_installation
     elif [ $GUI = 1 ] && [ $REPLACE = 0 ]; then
         question "<b>An earlier installation was interrupted.</b>\n\nContinue where it stopped, or start again from the beginning?" \
             "Continue" "Start again" || remove_installation
     elif [ $REPLACE = 1 ]; then
+        remove_old_appimages
         remove_installation
     fi
 }

@@ -766,6 +766,8 @@ exec 2> >(tee -a "$LOG" >&2)
 echo "=== $(date '+%F %T') $0 ${*:-}" >&2
 
 INSTALL=0
+# a broken Gear Lever settings file stops Gear Lever from starting
+command -v gearlever_conf >/dev/null && gearlever_conf
 [ -z "${1:-}" ] && offer_install && INSTALL=1
 case "${1:-}" in ""|update|license-tool) sentinel_runtime; splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
 [ $INSTALL = 1 ] && { install_appimage; splash "# Starting Wine..."; }
