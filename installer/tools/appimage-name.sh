@@ -22,11 +22,52 @@ retarget_desktop_files()  # OLD NEW
     n="$(printf %s "$2" | sed 's/[\/&]/\\&/g')"
     grep -lsF --null "$1" "$HOME/.local/share/applications/"*.desktop |
         while IFS= read -r -d '' f; do sed -i "s/$o/$n/g" "$f"; done
-    # Gear Lever keeps its settings per app under the md5 of the path
-    f="$HOME/.var/app/$GEARLEVER/config/gearlever.conf"
+    gearlever_conf "$1" "$2"
+}
+
+# Gear Lever keeps its settings per app under the md5 of the path: OLD's go to NEW. A section or option that
+# is there twice stops Gear Lever from starting at all (configparser), so those are merged, the last one wins.
+gearlever_conf()  # [OLD NEW]
+{
+    local f="$HOME/.var/app/$GEARLEVER/config/gearlever.conf"
     [ -f "$f" ] || return 0
-    sed -i -e "s/^\[app\.$(printf %s "$1" | md5sum | cut -c1-32)/[app.$(printf %s "$2" | md5sum | cut -c1-32)/" \
-        -e "s/^file_path = $o\$/file_path = $n/" "$f"
+    python3 -I - "$f" "${1:-}" "${2:-}" 2>>"${LOG:-/dev/null}" <<'EOF'
+import hashlib, os, re, sys
+path, old, new = sys.argv[1:4]
+key = lambda p: 'app.' + hashlib.md5(p.encode()).hexdigest()
+text = open(path, encoding='utf-8').read()
+sections, order = {}, []   # name -> {option: line}
+name = None
+for line in text.splitlines():
+    m = re.match(r'\[(.*)\]\s*$', line)
+    if m:
+        name = m.group(1)
+        if name not in sections:
+            sections[name] = {}
+            order.append(name)
+        continue
+    o = re.match(r'\s*([^=:\s][^=:]*?)\s*[=:]', line)
+    if o and name is not None:
+        sections[name][o.group(1).lower()] = line
+    elif line.strip() and name is not None:
+        sections[name]['#%d' % len(sections[name])] = line
+if old and new and old != new:
+    for suffix in ('', '.update_manager'):
+        o, n = key(old) + suffix, key(new) + suffix
+        if o in sections:
+            if n in sections:
+                del sections[n]
+                order.remove(n)
+            sections[n] = sections.pop(o)
+            order[order.index(o)] = n
+    n = key(new)
+    if n in sections and 'file_path' in sections[n]:
+        sections[n]['file_path'] = 'file_path = ' + new
+out = ''.join('\n'.join(['[%s]' % s] + list(sections[s].values())) + '\n\n' for s in order)
+if out != text:
+    open(path + '.tmp', 'w', encoding='utf-8').write(out)
+    os.replace(path + '.tmp', path)
+EOF
 }
 
 # DESKTOPFILE gets action ID (NAME), which runs COMMAND ARG, unless it has it; ADDED_ACTIONS lists the new ones
@@ -103,6 +144,7 @@ install_gearlever()
 integrate_appimage()  # FILE
 {
     local out new
+    gearlever_conf
     out="$(flatpak run "$GEARLEVER" --integrate "$1" -y 2>&1)"
     echo "$out" >> "$LOG"
     out="$(echo "$out" | sed -n 's/^\(\/.*\) was integrated successfully.*/\1/p' | tail -1)"

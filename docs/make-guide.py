@@ -153,7 +153,9 @@ story += [
             'Backup: copy ' + c('~/.local/share/topsolinux') + ' while TopSolid is closed. Your PDM projects are '
             'in it. Or package your projects in TopSolid.',
             'Newer TopSo\'Linux: start the new installer and choose <i>Update the AppImage</i>. Your installation '
-            'and projects stay. Starting over: choose <i>Replace</i>; your PDM projects are lost then.'),
+            'and projects stay. Starting over: choose <i>Replace</i>; your PDM projects are lost then. Both put '
+            'older TopSolid AppImages in the trash and remove their app menu entries: they would start the '
+            'installation with their old Wine.'),
 
     Paragraph('How this was made', h2),
     Paragraph('Completely vibe coded: the Wine changes, the installer and this guide were written by Claude Opus 5.5 '
