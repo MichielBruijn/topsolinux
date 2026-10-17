@@ -586,6 +586,7 @@ step_finish()
         EnableCommandPrediction Bool False >> "$LOG" 2>&1
     hardware_rendering >> "$LOG" 2>&1 || { say "Setting up TopSolid's hardware rendering failed"; return 1; }
     home_drive
+    resize_border
     touch "$WINEPREFIX/.topsolinux"
     settings_done
     unlink_desktop

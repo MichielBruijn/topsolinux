@@ -5,7 +5,7 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=7
+SETTINGS_LEVEL=8
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
@@ -73,6 +73,17 @@ settings_7()
             /d '"C:\windows\system32\winebrowser.exe" "%1"' /f >/dev/null 2>&1 || return 1
     done
 }
+
+# Windows 10's padded border (4 pixels) around resizable windows; Wine has none. TopSolid draws its own frame and
+# takes the width of its resize edges from the frame it got, minus 3 pixels: without it the top edge was 1 pixel
+# high and the bottom one hidden under the status bar, so the window could hardly be resized vertically
+resize_border()
+{
+    "$WINE" reg add 'HKCU\Control Panel\Desktop\WindowMetrics' /v PaddedBorderWidth /d -60 /f >/dev/null 2>&1
+}
+
+# 1.6.42: Windows 10's resize border (see resize_border)
+settings_8() { resize_border; }
 
 # the level of the prefix, 0 for one made before levels existed
 settings_level() { local l; l="$(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"; echo "${l:-0}"; }
