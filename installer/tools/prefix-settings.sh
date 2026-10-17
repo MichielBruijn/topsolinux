@@ -5,7 +5,7 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=6
+SETTINGS_LEVEL=7
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
@@ -62,6 +62,17 @@ home_drive()
 
 # 1.6.41: Z: is the home folder (see home_drive)
 settings_6() { home_drive; }
+
+# 1.6.41: text and rich text documents open in the desktop's programs instead of Wine's Notepad and WordPad
+# (Wine patch 76 does that for images, and for these in a new prefix; wine.inf doesn't overwrite them)
+settings_7()
+{
+    local c
+    for c in txtfile inifile rtffile wrifile; do
+        "$WINE" reg add "HKLM\Software\Classes\\$c\shell\open\command" /ve \
+            /d '"C:\windows\system32\winebrowser.exe" "%1"' /f >/dev/null 2>&1 || return 1
+    done
+}
 
 # the level of the prefix, 0 for one made before levels existed
 settings_level() { local l; l="$(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"; echo "${l:-0}"; }
