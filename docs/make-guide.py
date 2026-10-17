@@ -119,9 +119,17 @@ table = Table([[Paragraph(c(a), cell), Paragraph(b, cell)] for a, b in [
     ('scale auto', 'follow the desktop\'s scale again'),
     ('update', 'start TopSolid\'Update'),
     ('license FILE', 'install a license file'),
+    ('license-tool', 'TopSolid\'s license tool'),
+    ('spacemouse', 'SpaceMouse speeds and axes'),
     ('stop', 'stop SQL Server, the PDM and the license server'),
-    ('debug', 'TopSolid hangs: write its stacks to a file in your home folder, for a bug report'),
+    ('topsolinux-update', 'update this AppImage to the newest TopSo\'Linux, if there is one'),
+    ('update-check off', 'don\'t look for TopSo\'Linux updates at start (<i>on</i>: once a day again, the default)'),
+    ('debug', 'TopSolid hangs or typing goes nowhere: write its windows, keyboard focus and stacks to a file in '
+              'your home folder, for a bug report'),
     ('report', 'a zip with the logs for a problem report (same as <i>Report a problem</i>)'),
+    ('record', 'start TopSolid (<i>record update</i>: TopSolid\'Update) with timestamps in the log; closing it '
+               'makes the report'),
+    ('winecfg, regedit, shell', 'Wine tools, for troubleshooting'),
 ]], colWidths=[40 * mm, 130 * mm])
 table.setStyle(TableStyle([
     ('FONT', (0, 0), (-1, -1), 'Helvetica', 9),
