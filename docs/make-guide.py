@@ -138,6 +138,8 @@ story += [
             'bottom, or Esc.',
             'SpaceMouse: works through spacenavd, no 3Dconnexion driver needed. Speeds and axis directions: '
             'right-click TopSolid\'s icon, <i>SpaceMouse settings</i>. Changes work right away.',
+            'Drive Z: is your home folder, Y: the rest of the system (USB sticks, other drives). Images, PDFs '
+            'and text files that TopSolid opens, such as a saved screenshot, open in the desktop\'s own programs.',
             'Numbers and units follow the desktop\'s <i>Formats</i>: Dutch formats give a decimal comma and mm. '
             'To change them: ' + c('regedit') + ', ' + c('HKCU\\Control Panel\\International') + ' ('
             + c('sDecimal') + ', ' + c('iMeasure') + ' 0 = metric).',
