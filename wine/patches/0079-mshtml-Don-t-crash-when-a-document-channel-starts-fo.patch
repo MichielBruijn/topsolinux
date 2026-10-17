@@ -1,0 +1,41 @@
+From c136465b8e16453aabd48266489701043e60c6ca Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 17 Oct 2026 23:03:09 +0200
+Subject: [PATCH] mshtml: Don't crash when a document channel starts for a
+ window without an inner window.
+
+nsChannelBSC_start_binding resets skip_mutation_notif on the document of
+the outer window's current inner window, but that inner window can be
+NULL, e.g. for a frame that is being loaded. TopSolid's help pages that
+load their text in an iframe (like "Analyze geometry") crashed hh.exe
+and TopSolid itself with a read of 0xB8. Only reset it when there is a
+document.
+---
+ dlls/mshtml/navigate.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/mshtml/navigate.c b/dlls/mshtml/navigate.c
+index d487d2fae4e..bfde57a8b66 100644
+--- a/dlls/mshtml/navigate.c
++++ b/dlls/mshtml/navigate.c
+@@ -1357,13 +1357,16 @@ static HRESULT nsChannelBSC_start_binding(BSCallback *bsc)
+ 
+     if(This->is_doc_channel) {
+         DWORD flags = This->bsc.window->base.outer_window->load_flags;
++        HTMLInnerWindow *inner = This->bsc.window->base.outer_window->base.inner_window;
+ 
+         if(flags & BINDING_FROMHIST)
+             This->bsc.window->navigation_type = 2;  /* TYPE_BACK_FORWARD */
+         if(flags & BINDING_REFRESH)
+             This->bsc.window->navigation_type = 1;  /* TYPE_RELOAD */
+ 
+-        This->bsc.window->base.outer_window->base.inner_window->doc->skip_mutation_notif = FALSE;
++        /* the outer window may have no inner window (anymore), e.g. that of a frame being loaded */
++        if(inner && inner->doc)
++            inner->doc->skip_mutation_notif = FALSE;
+         This->bsc.window->navigation_start_time = get_time_stamp();
+     }
+ 
+-- 
+2.53.0
+
