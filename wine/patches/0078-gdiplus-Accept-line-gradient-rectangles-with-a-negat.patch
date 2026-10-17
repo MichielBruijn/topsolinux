@@ -1,0 +1,103 @@
+From e57d8ef7a03a016c27aaf1f152e879f532382a93 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 17 Oct 2026 19:02:39 +0200
+Subject: [PATCH] gdiplus: Accept line gradient rectangles with a negative
+ size.
+
+A rectangle with a negative width or height gave a line gradient
+brush a transform that can't be inverted, so filling with it failed
+with InvalidParameter. TopSolid hits this when it repaints the title
+of its ribbon while the window is very narrow, e.g. while minimizing.
+Compute the gradient for the same area with a positive size, and keep
+the rectangle as given, like native.
+---
+ dlls/gdiplus/brush.c    | 27 ++++++++++++++++++++++++---
+ dlls/gdiplus/graphics.c |  4 ++--
+ 2 files changed, 26 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/gdiplus/brush.c b/dlls/gdiplus/brush.c
+index 19722629e3d..3fdaa924e36 100644
+--- a/dlls/gdiplus/brush.c
++++ b/dlls/gdiplus/brush.c
+@@ -332,6 +332,7 @@ static void linegradient_init_transform(const GpPointF *startpoint, const GpPoin
+ {
+     float trans_x = line->rect.X + (line->rect.Width / 2.f);
+     float trans_y = line->rect.Y + (line->rect.Height / 2.f);
++    float width = fabsf(line->rect.Width), height = fabsf(line->rect.Height);
+     float dx = endpoint->X - startpoint->X;
+     float dy = endpoint->Y - startpoint->Y;
+     float t_cos, t_sin, w_ratio, h_ratio;
+@@ -343,8 +344,8 @@ static void linegradient_init_transform(const GpPointF *startpoint, const GpPoin
+     t_cos = dx / h;
+     t_sin = dy / h;
+ 
+-    w_ratio = (fabs(t_cos) * line->rect.Width + fabs(t_sin) * line->rect.Height) / line->rect.Width;
+-    h_ratio = (fabs(t_sin) * line->rect.Width + fabs(t_cos) * line->rect.Height) / line->rect.Height;
++    w_ratio = (fabs(t_cos) * width + fabs(t_sin) * height) / width;
++    h_ratio = (fabs(t_sin) * width + fabs(t_cos) * height) / height;
+ 
+     GdipSetMatrixElements(&line->transform, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+ 
+@@ -487,6 +488,8 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRectWithAngle(GDIPCONST GpRectF* rect
+     REAL exofs, eyofs, far_x, far_y;
+     REAL sin_angle, cos_angle, sin_cos_angle;
+     GpPointF start, end;
++    GDIPCONST GpRectF *orig_rect = rect;
++    GpRectF normalized;
+ 
+     TRACE("(%s, %lx, %lx, %.2f, %d, %d, %p)\n", debugstr_rectf(rect), startcolor, endcolor, angle, isAngleScalable,
+           wrap, line);
+@@ -497,6 +500,24 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRectWithAngle(GDIPCONST GpRectF* rect
+     if (!rect->Width || !rect->Height)
+         return OutOfMemory;
+ 
++    if (rect->Width < 0 || rect->Height < 0)
++    {
++        /* compute the gradient for the same area with a positive size,
++         * but keep the rectangle as given, like native */
++        set_rect(&normalized, rect->X, rect->Y, rect->Width, rect->Height);
++        if (normalized.Width < 0)
++        {
++            normalized.X += normalized.Width;
++            normalized.Width = -normalized.Width;
++        }
++        if (normalized.Height < 0)
++        {
++            normalized.Y += normalized.Height;
++            normalized.Height = -normalized.Height;
++        }
++        rect = &normalized;
++    }
++
+     angle = fmodf(angle, 360);
+     if (angle < 0)
+         angle += 360;
+@@ -550,7 +571,7 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRectWithAngle(GDIPCONST GpRectF* rect
+         end.Y = max(rect->Y, far_y);
+     }
+ 
+-    stat = create_line_brush(rect, startcolor, endcolor, wrap, line);
++    stat = create_line_brush(orig_rect, startcolor, endcolor, wrap, line);
+     if (stat != Ok || angle == 0.0f)
+         return stat;
+ 
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+index ae87c837d6b..d8299cd35c7 100644
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -759,10 +759,10 @@ static ARGB blend_colors(ARGB start, ARGB end, REAL position)
+ 
+ static ARGB blend_line_gradient(GpLineGradient* brush, REAL position)
+ {
+-    REAL blendfac;
++    REAL blendfac, left = min(brush->rect.X, brush->rect.X + brush->rect.Width);
+ 
+     /* clamp to between 0.0 and 1.0, using the wrap mode */
+-    position = (position - brush->rect.X) / brush->rect.Width;
++    position = (position - left) / fabsf(brush->rect.Width);
+     if (brush->wrap == WrapModeTile)
+     {
+         position = fmodf(position, 1.0f);
+-- 
+2.53.0
+
