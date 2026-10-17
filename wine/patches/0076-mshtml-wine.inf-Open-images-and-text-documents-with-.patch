@@ -1,0 +1,195 @@
+From 955ea3493f9fbd02f4ea169d063f4cee1f7187d1 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 17 Oct 2026 11:09:45 +0200
+Subject: [PATCH] mshtml, wine.inf: Open images and text documents with
+ winebrowser.
+
+Images opened in Internet Explorer through DDE, which shows a local
+image as an empty page, and text and rich text documents opened in
+Notepad and WordPad. winebrowser hands them to the desktop's own
+programs. BMP, TIFF, SVG and AVI files get an open command too.
+---
+ dlls/mshtml/mshtml.inf | 55 +++++++++++++++++++++---------------------
+ loader/wine.inf.in     |  8 +++---
+ 2 files changed, 31 insertions(+), 32 deletions(-)
+
+diff --git a/dlls/mshtml/mshtml.inf b/dlls/mshtml/mshtml.inf
+index f2c60748c5f..ddd48b16cef 100644
+--- a/dlls/mshtml/mshtml.inf
++++ b/dlls/mshtml/mshtml.inf
+@@ -4,6 +4,7 @@ Signature="$CHICAGO$"
+ 
+ [RegisterDll]
+ AddReg=Classes.Reg, Protocols.Reg, IE.Reg, FileAssoc.Reg
++DelReg=FileAssoc.DelReg
+ 
+ 
+ [UnregisterDll]
+@@ -79,18 +80,32 @@ HKLM,"Software\Microsoft\Internet Explorer\Default Behaviors","TIME",, "CLSID:47
+ HKLM,"Software\Microsoft\Internet Explorer\ActiveX Compatibility","Version",,"6.17"
+ 
+ 
++[FileAssoc.DelReg]
++HKCR,"giffile\shell\open\ddeexec"
++HKCR,"jpegfile\shell\open\ddeexec"
++HKCR,"pjpegfile\shell\open\ddeexec"
++HKCR,"pngfile\shell\open\ddeexec"
++HKCR,"xbmfile\shell\open\ddeexec"
++
++
+ [FileAssoc.Reg]
+ 
+ ;; AVI
+ HKCR,"MIME\Database\Content Type\video/avi","CLSID",,"{CD3AFA88-B84F-48F0-9393-7EDC34128127}"
+ HKCR,"MIME\Database\Content Type\video/avi","Extension",,".avi"
+ HKCR,".avi","Content Type",,"video/avi"
++HKCR,".avi",,2,"avifile"
++HKCR,"avifile",,2,"Video Clip"
++HKCR,"avifile\shell\open\command",,2,"""%11%\winebrowser.exe"" ""%%1"""
+ 
+ ;; BMP
+ HKCR,"MIME\Database\Content Type\image/bmp","Extension",,".bmp"
+ HKCR,"MIME\Database\Content Type\image/bmp","Image Filter CLSID",,"%CLSID_IImageDecodeFilter%"
+ HKCR,"MIME\Database\Content Type\image/bmp\Bits","0",1,02,00,00,00,FF,FF,42,4D
+ HKCR,".bmp","Content Type",,"image/bmp"
++HKCR,".bmp",,2,"bmpfile"
++HKCR,"bmpfile",,2,"BMP Image"
++HKCR,"bmpfile\shell\open\command",,2,"""%11%\winebrowser.exe"" ""%%1"""
+ 
+ ;; CSS
+ HKCR,"MIME\Database\Content Type\text/css","Extension",,".css"
+@@ -116,10 +131,7 @@ HKCR,".gif",,2,"giffile"
+ HKCR,".gif","Content Type",,"image/gif"
+ HKCR,"giffile",,,"GIF Image"
+ HKCR,"giffile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"giffile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"giffile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"giffile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"giffile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"giffile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"giffile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,9"
+ 
+ ;; GZIP
+@@ -163,10 +175,7 @@ HKCR,".jpe",,2,"jpegfile"
+ HKCR,".jpe","Content Type",,"image/jpeg"
+ HKCR,"jpegfile",,,"JPEG Image"
+ HKCR,"jpegfile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"jpegfile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"jpegfile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"jpegfile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"jpegfile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"jpegfile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"jpegfile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,8"
+ 
+ ;; JPEG
+@@ -178,10 +187,7 @@ HKCR,".jpeg",,2,"jpegfile"
+ HKCR,".jpeg","Content Type",,"image/jpeg"
+ HKCR,"jpegfile",,,"JPEG Image"
+ HKCR,"jpegfile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"jpegfile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"jpegfile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"jpegfile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"jpegfile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"jpegfile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"jpegfile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,8"
+ 
+ ;; JPG
+@@ -189,10 +195,7 @@ HKCR,".jpg",,2,"jpegfile"
+ HKCR,".jpg","Content Type",,"image/jpeg"
+ HKCR,"jpegfile",,,"JPEG Image"
+ HKCR,"jpegfile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"jpegfile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"jpegfile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"jpegfile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"jpegfile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"jpegfile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"jpegfile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,8"
+ 
+ ;; MHTML
+@@ -230,10 +233,7 @@ HKCR,".jfif",,2,"pjpegfile"
+ HKCR,".jfif","Content Type",,"image/jpeg"
+ HKCR,"pjpegfile",,,"JPEG Image"
+ HKCR,"pjpegfile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"pjpegfile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"pjpegfile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"pjpegfile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"pjpegfile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"pjpegfile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"pjpegfile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,8"
+ 
+ ;; PNG
+@@ -243,10 +243,7 @@ HKCR,".png",,2,"pngfile"
+ HKCR,".png","Content Type",,"image/png"
+ HKCR,"pngfile",,,"PNG Image"
+ HKCR,"pngfile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"pngfile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"pngfile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"pngfile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"pngfile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"pngfile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"pngfile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,9"
+ 
+ ;; PS
+@@ -260,6 +257,7 @@ HKCR,"MIME\Database\Content Type\image/svg+xml","CLSID",,"{30590066-98B5-11CF-BB
+ HKCR,"MIME\Database\Content Type\image/svg+xml","Extension",,".svg"
+ HKCR,".svg",,,"svgfile"
+ HKCR,".svg","Content Type",,"image/svg+xml"
++HKCR,"svgfile\shell\open\command",,2,"""%11%\winebrowser.exe"" ""%%1"""
+ 
+ ;; TAR
+ HKCR,"MIME\Database\Content Type\application/x-tar","Extension",,".tar"
+@@ -273,6 +271,10 @@ HKCR,".tgz","Content Type",,"application/x-compressed"
+ HKCR,"MIME\Database\Content Type\image/tiff","Extension",,".tiff"
+ HKCR,".tif","Content Type",,"image/tiff"
+ HKCR,".tiff","Content Type",,"image/tiff"
++HKCR,".tif",,2,"tiffile"
++HKCR,".tiff",,2,"tiffile"
++HKCR,"tiffile",,2,"TIFF Image"
++HKCR,"tiffile\shell\open\command",,2,"""%11%\winebrowser.exe"" ""%%1"""
+ 
+ ;; TXT
+ HKCR,"MIME\Database\Content Type\text/plain","CLSID",,"%CLSID_HTMLDocument%"
+@@ -293,10 +295,7 @@ HKCR,"MIME\Database\Content Type\image/x-xbitmap","CLSID",,"%CLSID_HTMLDocument%
+ HKCR,".xbm","Content Type",,"image/x-xbitmap"
+ HKCR,"xbmfile",,,"XBM Image"
+ HKCR,"xbmfile\CLSID",,,"%CLSID_HTMLDocument%"
+-HKCR,"xbmfile\shell\open\command",,,"""%16422%\Internet Explorer\iexplore.exe"" -nohome"
+-HKCR,"xbmfile\shell\open\ddeexec",,,"""file:%%1"",,-1,,,,,"
+-HKCR,"xbmfile\shell\open\ddeexec\Application",,,"IExplore"
+-HKCR,"xbmfile\shell\open\ddeexec\Topic",,,"WWW_OpenURL"
++HKCR,"xbmfile\shell\open\command",,,"""%11%\winebrowser.exe"" ""%%1"""
+ ;; HKCR,"xbmfile\DefaultIcon",,,"%16422%\Internet Explorer\iexplore.exe,9"
+ 
+ ;; XHTML
+diff --git a/loader/wine.inf.in b/loader/wine.inf.in
+index 965d3b261c2..805238aa495 100644
+--- a/loader/wine.inf.in
++++ b/loader/wine.inf.in
+@@ -269,7 +269,7 @@ HKCR,htmlfile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+ HKCR,inffile,,2,"Setup Information"
+ HKCR,inffile\shell\install\command,,2,"%11%\rundll32.exe setupapi,InstallHinfSection DefaultInstall 132 %1"
+ HKCR,inifile,,2,"Configuration Settings"
+-HKCR,inifile\shell\open\command,,2,"""%11%\notepad.exe"" ""%1"""
++HKCR,inifile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+ HKCR,inifile\shell\print\command,,2,"""%11%\notepad.exe"" /p ""%1"""
+ HKCR,lnkfile,,2,"Shortcut"
+ HKCR,lnkfile,"NeverShowExt",2,""
+@@ -291,12 +291,12 @@ HKCR,pdffile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+ HKCR,regfile,,2,"Windows Registry File"
+ HKCR,regfile\shell\open\command,,2,"""%11%\regedit.exe"" ""%1"""
+ HKCR,rtffile,,2,"Rich Text Document"
+-HKCR,rtffile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" ""%1"""
++HKCR,rtffile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+ HKCR,rtffile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p ""%1"""
+ HKCR,txtfile,,2,"Text Document"
+-HKCR,txtfile\shell\open\command,,2,"""%11%\notepad.exe"" ""%1"""
++HKCR,txtfile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+ HKCR,txtfile\shell\print\command,,2,"""%11%\notepad.exe"" /p ""%1"""
+-HKCR,wrifile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" ""%1"""
++HKCR,wrifile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+ HKCR,wrifile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p ""%1"""
+ HKCR,xmlfile,,2,"XML Document"
+ HKCR,xmlfile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+-- 
+2.53.0
+
