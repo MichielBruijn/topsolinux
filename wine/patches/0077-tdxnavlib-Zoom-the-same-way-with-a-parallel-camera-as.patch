@@ -1,0 +1,32 @@
+From 2898ccb3a8570369a1e01e443ea1512b3d3db679 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 17 Oct 2026 11:23:43 +0200
+Subject: [PATCH] tdxnavlib: Zoom the same way with a parallel camera as with a
+ perspective one.
+
+With a perspective camera the cap moves the camera back and the view
+zooms out; the orthographic extents were scaled the other way, so the
+same push zoomed in.
+---
+ dlls/tdxnavlib/main.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index 13565eb618d..e87f626fa2f 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -354,8 +354,9 @@ static void navigate( struct navlib *nl, const int in[6], double dt )
+ 
+     if (have_extents)
+     {
+-        /* zoom by scaling the orthographic extents instead of moving the camera */
+-        extents_scale = exp( -t[2] / dist );
++        /* zoom by scaling the orthographic extents instead of moving the camera: a camera that
++         * moves back (+z) sees more, as in perspective */
++        extents_scale = exp( t[2] / dist );
+         t[2] = 0.0;
+     }
+ 
+-- 
+2.53.0
+
