@@ -1,0 +1,104 @@
+From 120dbb231a737508d3ff055476aba674d93872fe Mon Sep 17 00:00:00 2001
+From: topsolinux <topsolinux@invalid>
+Date: Tue, 20 Oct 2026 21:27:17 +0200
+Subject: [PATCH] ntdll: Give every exception handler the dispatcher's flags on
+ x64.
+
+Since b825ccf58e6 the flags are only reset at the nested frame, so flags
+a handler sets reach the following handlers. .NET Framework sets
+EXCEPTION_UNWINDING | EXCEPTION_TARGET_UNWIND in its handler; the next
+managed frame then calls a catch funclet at address 0 when a caught
+NullReferenceException is rethrown, and the process dies with an
+AccessViolationException.
+
+Like Windows, restore the dispatcher's flags before every handler and
+keep only EXCEPTION_NONCONTINUABLE from it.
+---
+ dlls/ntdll/signal_x86_64.c | 26 +++++++++++++++++++-------
+ 1 file changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/ntdll/signal_x86_64.c b/dlls/ntdll/signal_x86_64.c
+index b94e4a23a99..339ad986ca6 100644
+--- a/dlls/ntdll/signal_x86_64.c
++++ b/dlls/ntdll/signal_x86_64.c
+@@ -239,7 +239,7 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
+     CONTEXT context;
+     NTSTATUS status;
+     ULONG_PTR frame, nested_frame;
+-    DWORD res;
++    DWORD res, flags;
+ 
+     context = *orig_context;
+     context.ContextFlags &= ~0x40; /* Clear xstate flag. */
+@@ -248,6 +248,7 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
+     dispatch.ContextRecord = &context;
+     dispatch.HistoryTable  = &table;
+     nested_frame = 0;
++    flags = rec->ExceptionFlags;
+     for (;;)
+     {
+         status = virtual_unwind( UNW_FLAG_EHANDLER, &dispatch, &context );
+@@ -268,21 +269,27 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
+         {
+             TRACE( "calling handler %p (rec=%p, frame=%I64x context=%p, dispatch=%p)\n",
+                    dispatch.LanguageHandler, rec, dispatch.EstablisherFrame, orig_context, &dispatch );
++            /* handlers may change the flags; like Windows, every handler gets the dispatcher's own */
++            rec->ExceptionFlags = flags;
+             res = call_seh_handler( rec, dispatch.EstablisherFrame, orig_context,
+                                     &dispatch, dispatch.LanguageHandler );
++            flags |= rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE;
+             if (dispatch.EstablisherFrame == nested_frame)
+-                rec->ExceptionFlags &= EXCEPTION_NONCONTINUABLE;
++            {
++                flags &= ~EXCEPTION_NESTED_CALL;
++                nested_frame = 0;
++            }
+             TRACE( "handler at %p returned %lu\n", dispatch.LanguageHandler, res );
+ 
+             switch (res)
+             {
+             case ExceptionContinueExecution:
+-                if (rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE) return STATUS_NONCONTINUABLE_EXCEPTION;
++                if (flags & EXCEPTION_NONCONTINUABLE) return STATUS_NONCONTINUABLE_EXCEPTION;
+                 return STATUS_SUCCESS;
+             case ExceptionContinueSearch:
+                 break;
+             case ExceptionNestedException:
+-                rec->ExceptionFlags |= EXCEPTION_NESTED_CALL;
++                flags |= EXCEPTION_NESTED_CALL;
+                 nested_frame = dispatch.EstablisherFrame;
+                 TRACE( "nested exception\n" );
+                 break;
+@@ -299,21 +306,26 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
+         {
+             TRACE( "calling TEB handler %p (rec=%p frame=%p context=%p dispatch=%p) sp=%I64x\n",
+                    teb_frame->Handler, rec, teb_frame, orig_context, &dispatch, context.Rsp );
++            rec->ExceptionFlags = flags;
+             res = call_seh_handler( rec, (ULONG_PTR)teb_frame, orig_context,
+                                     &dispatch, (PEXCEPTION_ROUTINE)teb_frame->Handler );
++            flags |= rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE;
+             if (dispatch.EstablisherFrame == nested_frame)
+-                rec->ExceptionFlags &= EXCEPTION_NONCONTINUABLE;
++            {
++                flags &= ~EXCEPTION_NESTED_CALL;
++                nested_frame = 0;
++            }
+             TRACE( "TEB handler at %p returned %lu\n", teb_frame->Handler, res );
+ 
+             switch (res)
+             {
+             case ExceptionContinueExecution:
+-                if (rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE) return STATUS_NONCONTINUABLE_EXCEPTION;
++                if (flags & EXCEPTION_NONCONTINUABLE) return STATUS_NONCONTINUABLE_EXCEPTION;
+                 return STATUS_SUCCESS;
+             case ExceptionContinueSearch:
+                 break;
+             case ExceptionNestedException:
+-                rec->ExceptionFlags |= EXCEPTION_NESTED_CALL;
++                flags |= EXCEPTION_NESTED_CALL;
+                 nested_frame = dispatch.EstablisherFrame;
+                 TRACE( "nested exception\n" );
+                 break;
+-- 
+2.53.0
+
