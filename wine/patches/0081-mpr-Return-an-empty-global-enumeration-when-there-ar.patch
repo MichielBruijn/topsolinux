@@ -1,0 +1,71 @@
+From 9a749d1a0978093125b10cb9900ef6cd2a4065da Mon Sep 17 00:00:00 2001
+From: topsolinux <topsolinux@invalid>
+Date: Fri, 23 Oct 2026 20:22:03 +0200
+Subject: [PATCH] mpr: Return an empty global enumeration when there are no
+ network providers.
+
+Windows always has a network provider, so WNetOpenEnum(RESOURCE_GLOBALNET)
+without a resource never fails there. TopSolid's file explorer in "Import
+Several Files with Conversion" uses the result list without a null check
+and crashes with a NullReferenceException when Wine returns WN_NO_NETWORK.
+---
+ dlls/mpr/wnet.c | 29 ++++++++++++++++++++++++-----
+ 1 file changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/mpr/wnet.c b/dlls/mpr/wnet.c
+index 7402848ea05..6e6c12146e6 100644
+--- a/dlls/mpr/wnet.c
++++ b/dlls/mpr/wnet.c
+@@ -672,8 +672,17 @@ DWORD WINAPI WNetOpenEnumA( DWORD dwScope, DWORD dwType, DWORD dwUsage,
+         ret = WN_BAD_POINTER;
+     else if (!providerTable || providerTable->numProviders == 0)
+     {
+-        *lphEnum = NULL;
+-        ret = WN_NO_NETWORK;
++        /* Windows always has a provider, callers don't expect this to fail */
++        if (dwScope == RESOURCE_GLOBALNET && !lpNet)
++        {
++            *lphEnum = _createGlobalEnumeratorW(dwScope, dwType, dwUsage, NULL);
++            ret = *lphEnum ? WN_SUCCESS : WN_OUT_OF_MEMORY;
++        }
++        else
++        {
++            *lphEnum = NULL;
++            ret = WN_NO_NETWORK;
++        }
+     }
+     else
+     {
+@@ -763,8 +772,17 @@ DWORD WINAPI WNetOpenEnumW( DWORD dwScope, DWORD dwType, DWORD dwUsage,
+         ret = WN_BAD_POINTER;
+     else if (!providerTable || providerTable->numProviders == 0)
+     {
+-        *lphEnum = NULL;
+-        ret = WN_NO_NETWORK;
++        /* Windows always has a provider, callers don't expect this to fail */
++        if (dwScope == RESOURCE_GLOBALNET && !lpNet)
++        {
++            *lphEnum = _createGlobalEnumeratorW(dwScope, dwType, dwUsage, NULL);
++            ret = *lphEnum ? WN_SUCCESS : WN_OUT_OF_MEMORY;
++        }
++        else
++        {
++            *lphEnum = NULL;
++            ret = WN_NO_NETWORK;
++        }
+     }
+     else
+     {
+@@ -1122,7 +1140,8 @@ static DWORD _enumerateGlobalW(PWNetEnumerator enumerator, LPDWORD lpcCount,
+         return WN_BAD_POINTER;
+     if (*lpBufferSize < sizeof(NETRESOURCEW))
+         return WN_MORE_DATA;
+-    if (!providerTable)
++    if (!providerTable && (enumerator->dwScope != RESOURCE_GLOBALNET ||
++     enumerator->specific.net))
+         return WN_NO_NETWORK;
+ 
+     switch (enumerator->dwScope)
+-- 
+2.53.0
+
