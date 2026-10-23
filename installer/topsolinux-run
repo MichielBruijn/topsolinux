@@ -342,6 +342,26 @@ apply_formats()
 # stdout only: the first Wine program starts the services, and they keep its stderr (the log)
 set_international() { "$WINE" reg add 'HKCU\Control Panel\International' /v "$1" /d "$2" /f >/dev/null; }
 
+# Windows keeps the regional format (user locale) apart from the display language, Wine takes its user
+# locale from the system UI languages: name LC_NUMERIC's locale there, e.g. nl-NL numbers with English
+# texts. With an en-US user locale and a decimal comma, en-US itself got the comma, and TopSolid's text
+# STL, written with en-US on purpose, had commas.
+apply_format_locale()
+{
+    local key='HKCU\Control Panel\Desktop\MuiCached' want last
+    want="${LC_ALL:-${LC_NUMERIC:-${LANG:-}}}"
+    want="${want%%.*}"; want="${want%%@*}"
+    case "$want" in C|POSIX|"") want="" ;; *) want="${want//_/-}" ;; esac
+    last="$(cat "$DATA/.format-locale" 2>/dev/null)"
+    [ "$want" = "$last" ] && return
+    if [ -n "$want" ]; then
+        "$WINE" reg add "$key" /v MachinePreferredUILanguages /t REG_MULTI_SZ /d "$want" /f >/dev/null
+    else
+        "$WINE" reg delete "$key" /v MachinePreferredUILanguages /f >/dev/null 2>&1
+    fi
+    echo "$want" > "$DATA/.format-locale"
+}
+
 # the managed and native stacks of a hanging program, for a bug report; attaches only to that program
 # the windows, keyboard focus and stacks of a running PROGRAM.exe (TopSolid.exe by default)
 program_state()  # [PROGRAM]
@@ -806,16 +826,16 @@ setup_gpu
 setup_crash_dumps
 
 case "${1:-}" in
-    "")           apply_scale; apply_formats; wait_for_pdm; start_unstick
+    "")           apply_scale; apply_format_locale; apply_formats; wait_for_pdm; start_unstick
                   splash "# Starting TopSolid..."; splash "watch topsolid.exe"; start_update_check; start_recording
                   run "$TOPSOLID\\TopSolid.exe"; ret=$?; finish_recording
                   # a question about an update that is still open, or the update itself
                   [ -n "$UPDATE_CHECK" ] && wait "$UPDATE_CHECK"
                   exit $ret ;;
-    update)       apply_scale; apply_formats; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
+    update)       apply_scale; apply_format_locale; apply_formats; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
                   start_recording
                   run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe"; finish_recording ;;
-    license-tool) apply_scale; apply_formats; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"
+    license-tool) apply_scale; apply_format_locale; apply_formats; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"
                   run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
         [ -f "${2:-}" ] || { msg "usage: $0 license FILE"; exit 1; }
@@ -826,8 +846,8 @@ case "${1:-}" in
                   topsolid_running || "$WINESERVER" -w ;;
     # without GTK 3 the settings are in regedit, HKEY_CURRENT_USER\Software\Wine\TDxNavLib
     spacemouse)   python3 "$TOOLS/spacemouse.py" 2>>"$LOG"
-                  [ $? = 2 ] && { apply_scale; apply_formats; run regedit; } ;;
-    winecfg|regedit) apply_scale; apply_formats; run "$1" ;;
+                  [ $? = 2 ] && { apply_scale; apply_format_locale; apply_formats; run regedit; } ;;
+    winecfg|regedit) apply_scale; apply_format_locale; apply_formats; run "$1" ;;
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;
     stop)         stop_services ;;
