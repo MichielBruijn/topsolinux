@@ -1,0 +1,44 @@
+From 55c94c9c26194374e81397da19bf49681136b6fc Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Fri, 23 Oct 2026 21:57:19 +0200
+Subject: [PATCH] tdxnavlib: Ignore the 3D mouse while another application has
+ the focus.
+
+spacenavd sends the motion to every connected client, so the camera
+moved while working in another window.
+---
+ dlls/tdxnavlib/main.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index e87f626fa2f..f376ee10397 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -157,6 +157,15 @@ static struct navlib *active_navlib(void)
+     return last;
+ }
+ 
++/* spacenavd sends the motion to every client, also while another application has the focus */
++static BOOL is_foreground(void)
++{
++    HWND hwnd = GetForegroundWindow();
++    DWORD pid;
++
++    return hwnd && GetWindowThreadProcessId( hwnd, &pid ) && pid == GetCurrentProcessId();
++}
++
+ static struct accessor *find_accessor( struct navlib *nl, const char *name )
+ {
+     SIZE_T i;
+@@ -412,6 +421,8 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+     last = axes_tick;
+     LeaveCriticalSection( &cs );
+     if (!nl) return 0;
++    /* no motion without the focus, and a motion in progress ends at once */
++    if (!is_foreground()) memset( in, 0, sizeof(in) ), last = 0;
+ 
+     now = GetTickCount();
+     idle = !in[0] && !in[1] && !in[2] && !in[3] && !in[4] && !in[5];
+-- 
+2.53.0
+
