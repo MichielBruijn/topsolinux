@@ -1,0 +1,141 @@
+From 5f24b1e06e527d6bdbd409b99e024bed050f114e Mon Sep 17 00:00:00 2001
+From: topsolinux <topsolinux@invalid>
+Date: Fri, 23 Oct 2026 20:25:18 +0200
+Subject: [PATCH] comdlg32: Start the item dialog in the folder the application
+ used last.
+
+Without SetFolder, Windows opens IFileDialog in the folder of the last
+file the application picked; SetDefaultFolder only applies when there is
+none. Wine always started at the desktop. Share the LastVisitedMRU the
+old file dialog already keeps per executable: read it when the dialog
+opens and update it when a file is accepted.
+---
+ dlls/comdlg32/cdlg.h    |  2 ++
+ dlls/comdlg32/filedlg.c |  6 ++----
+ dlls/comdlg32/itemdlg.c | 42 +++++++++++++++++++++++++++++++++++++++--
+ 3 files changed, 44 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/comdlg32/cdlg.h b/dlls/comdlg32/cdlg.h
+index 79c951d1391..d12a18dc03c 100644
+--- a/dlls/comdlg32/cdlg.h
++++ b/dlls/comdlg32/cdlg.h
+@@ -178,6 +178,8 @@ int FILEDLG95_ValidatePathAction(LPWSTR lpstrPathAndFile, IShellFolder **ppsf,
+                                  HWND hwnd, DWORD flags, BOOL isSaveDlg, int defAction);
+ int COMDLG32_SplitFileNames(LPWSTR lpstrEdit, UINT nStrLen, LPWSTR *lpstrFileList, UINT *sizeUsed);
+ void FILEDLG95_OnOpenMessage(HWND hwnd, int idCaption, int idText);
++void FILEDLG95_MRU_load_filename(LPWSTR stored_path);
++void FILEDLG95_MRU_save_filename(LPCWSTR filename);
+ 
+ extern BOOL GetFileName31A( OPENFILENAMEA *lpofn, UINT dlgType );
+ extern BOOL GetFileName31W( OPENFILENAMEW *lpofn, UINT dlgType );
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+index 286b9f4581e..a268dfa4ae9 100644
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -187,9 +187,7 @@ static int     FILEDLG95_LOOKIN_RemoveMostExpandedItem(HWND hwnd);
+ static void    FILEDLG95_LOOKIN_Clean(HWND hwnd);
+ 
+ /* Functions for dealing with the most-recently-used registry keys */
+-static void FILEDLG95_MRU_load_filename(LPWSTR stored_path);
+ static WCHAR FILEDLG95_MRU_get_slot(LPCWSTR module_name, LPWSTR stored_path, PHKEY hkey_ret);
+-static void FILEDLG95_MRU_save_filename(LPCWSTR filename);
+ 
+ /* Miscellaneous tool functions */
+ static HRESULT GetName(LPSHELLFOLDER lpsf, LPITEMIDLIST pidl,DWORD dwFlags,LPWSTR lpstrFileName);
+@@ -2351,7 +2349,7 @@ static WCHAR FILEDLG95_MRU_get_slot(LPCWSTR module_name, LPWSTR stored_path, PHK
+ }
+ 
+ /* save the given filename as most-recently-used path for this module */
+-static void FILEDLG95_MRU_save_filename(LPCWSTR filename)
++void FILEDLG95_MRU_save_filename(LPCWSTR filename)
+ {
+     WCHAR module_path[MAX_PATH], *module_name, slot, slot_name[2] = {0};
+     LONG ret;
+@@ -2441,7 +2439,7 @@ static void FILEDLG95_MRU_save_filename(LPCWSTR filename)
+ }
+ 
+ /* load the most-recently-used path for this module */
+-static void FILEDLG95_MRU_load_filename(LPWSTR stored_path)
++void FILEDLG95_MRU_load_filename(LPWSTR stored_path)
+ {
+     WCHAR module_path[MAX_PATH], *module_name;
+ 
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+index 6e47cb12ca5..ede7a6ce7b9 100644
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -599,6 +599,37 @@ static BOOL shell_item_exists(IShellItem* shellitem)
+     return result;
+ }
+ 
++/* Like Windows, start in the folder the application used last */
++static IShellItem *get_mru_folder(void)
++{
++    WCHAR path[MAX_PATH];
++    IShellItem *psi;
++
++    path[0] = 0;
++    FILEDLG95_MRU_load_filename(path);
++    if(!path[0] || !PathIsDirectoryW(path))
++        return NULL;
++    if(FAILED(SHCreateItemFromParsingName(path, NULL, &IID_IShellItem, (void**)&psi)))
++        return NULL;
++    return psi;
++}
++
++static void save_mru_folder(IShellItemArray *psia)
++{
++    IShellItem *psi;
++    WCHAR *path;
++
++    if(FAILED(IShellItemArray_GetItemAt(psia, 0, &psi)))
++        return;
++    if(SUCCEEDED(IShellItem_GetDisplayName(psi, SIGDN_FILESYSPATH, &path)))
++    {
++        if(wcsrchr(path, '\\'))
++            FILEDLG95_MRU_save_filename(path);
++        CoTaskMemFree(path);
++    }
++    IShellItem_Release(psi);
++}
++
+ static HRESULT on_default_action(FileDialogImpl *This)
+ {
+     IShellFolder *psf_parent, *psf_desktop;
+@@ -784,7 +815,11 @@ static HRESULT on_default_action(FileDialogImpl *This)
+             }
+ 
+             if(events_OnFileOk(This) == S_OK)
++            {
+                 ret = S_OK;
++                if(!(This->options & FOS_PICKFOLDERS))
++                    save_mru_folder(This->psia_results);
++            }
+         }
+         break;
+ 
+@@ -1940,7 +1975,7 @@ static void update_layout(FileDialogImpl *This)
+ 
+ static HRESULT init_explorerbrowser(FileDialogImpl *This)
+ {
+-    IShellItem *psi_folder;
++    IShellItem *psi_folder, *psi_mru;
+     IObjectWithSite *client;
+     FOLDERSETTINGS fos;
+     RECT rc = {0};
+@@ -1988,8 +2023,11 @@ static HRESULT init_explorerbrowser(FileDialogImpl *This)
+     }
+ 
+     /* Browse somewhere */
+-    psi_folder = This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder;
++    psi_mru = This->psi_setfolder ? NULL : get_mru_folder();
++    psi_folder = This->psi_setfolder ? This->psi_setfolder :
++                 psi_mru ? psi_mru : This->psi_defaultfolder;
+     IExplorerBrowser_BrowseToObject(This->peb, (IUnknown*)psi_folder, SBSP_DEFBROWSER);
++    if(psi_mru) IShellItem_Release(psi_mru);
+ 
+     return S_OK;
+ }
+-- 
+2.53.0
+
