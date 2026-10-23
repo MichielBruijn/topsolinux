@@ -1082,8 +1082,11 @@ PLAN="prefix runtimes setup sqlsetup extras sql pdm finish firewall appimage"
 [ "$SPACEMOUSE" = 1 ] && PLAN="${PLAN/firewall/spacemouse firewall}"
 [ $USE_GEARLEVER = 1 ] && PLAN="$PLAN gearlever"
 progress_start "Installing TopSolid"
+# Wine starts programs in the current folder, not the home folder (Z:\): installers make folders there
+cd "$DATA"
 [ $DOWNLOAD = 1 ] && step download
 step prefix
+cd "$WINEPREFIX/drive_c"
 step runtimes
 step setup
 step sqlsetup

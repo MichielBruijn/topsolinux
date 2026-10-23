@@ -789,7 +789,12 @@ esac
 
 # Wine's NTLM uses Samba's ntlm_auth (the PDM logs in to SQL Server with it); prefer the system's
 ntlm_auth --version >/dev/null 2>&1 || export PATH="$HERE/usr/lib/ntlm_auth/bin:$PATH"
+# Wine starts programs in the current folder: from the desktop that is the home folder (Z:\), where
+# TopSolid and Sentinel RMS then made TOPSOLID and Thales folders
+[ "${1:-}" = license ] && [ -f "${2:-}" ] && set -- "$1" "$(readlink -f "$2")"
+mkdir -p "$DATA" && cd "$DATA"
 install_prefix
+cd "$WINEPREFIX/drive_c" 2>/dev/null
 remove_auto_drives
 find_version
 # settings that newer versions of the installer make, for a prefix made by an older one
