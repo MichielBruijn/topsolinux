@@ -95,13 +95,15 @@ default_gpu()  # DESKTOPFILE
 }
 
 # what app menu entries made by older versions don't have: "Check for TopSo'Linux updates" (1.6.15),
-# "SpaceMouse settings" (1.6.21), "Report a problem" (1.6.30), and the GPU default (1.6.36)
+# "SpaceMouse settings" (1.6.21), "Report a problem" (1.6.30), the GPU default (1.6.36) and
+# "MCP server for AI assistants" (1.6.49)
 add_update_action()  # DESKTOPFILE COMMAND
 {
     default_gpu "$1"
     add_action "$1" "$2" topsolinux "Check for TopSo'Linux updates" topsolinux-update
     add_action "$1" "$2" spacemouse "SpaceMouse settings" spacemouse
     add_action "$1" "$2" report "Report a problem" report
+    add_action "$1" "$2" mcp "MCP server for AI assistants" mcp-install
 }
 
 # the app menu entries that start APPIMAGE

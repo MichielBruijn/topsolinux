@@ -86,6 +86,9 @@ story = [
             'updates the AppImage to the newest TopSo\'Linux. TopSolid also looks for one once a day when it starts.',
             '<i>Report a problem</i> makes a zip in your Downloads folder with the logs and what the computer has, to send '
             'to whoever helps you. It can record TopSolid or TopSolid\'Update while the problem happens.',
+            '<i>MCP server for AI assistants</i> installs the community TopSolid MCP server, which lets AI assistants '
+            'such as Claude Code, Codex or GitHub Copilot in VS Code work with TopSolid, and turns on TopSolid\'s automation port (close TopSolid first). '
+            'Add the command ' + c('~/.local/bin/topsolid-mcp') + ' to your assistant; it works while TopSolid runs.',
             'Another computer: copy the AppImage there and start it, and choose <i>Install</i> (app menu, with Gear Lever) or <i>Launch</i>. The first start sets TopSolid up in '
             + c('~/.local/share/topsolinux') + ', which takes a few minutes. Each computer needs its own license.',
             'Only use it on computers you are licensed for, and do not publish it: it contains TopSolid, SQL Server '
@@ -124,6 +127,7 @@ table = Table([[Paragraph(c(a), cell), Paragraph(b, cell)] for a, b in [
     ('stop', 'stop SQL Server, the PDM and the license server'),
     ('topsolinux-update', 'update this AppImage to the newest TopSo\'Linux, if there is one'),
     ('update-check off', 'don\'t look for TopSo\'Linux updates at start (<i>on</i>: once a day again, the default)'),
+    ('mcp-install', 'install or update the MCP server for AI assistants'),
     ('debug', 'TopSolid hangs or typing goes nowhere: write its windows, keyboard focus and stacks to a file in '
               'your home folder, for a bug report'),
     ('report', 'a zip with the logs for a problem report (same as <i>Report a problem</i>)'),
