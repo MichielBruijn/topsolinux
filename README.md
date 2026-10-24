@@ -118,8 +118,8 @@ options if you want it.
 ## Everyday use
 
 Right-click TopSolid's icon in the app menu for TopSolid'Update, the license tool, *SpaceMouse settings*,
-Wine settings, *Stop background services*, *Check for TopSo'Linux updates* and *Report a problem*. The AppImage
-also accepts commands:
+Wine settings, *Stop background services*, *Check for TopSo'Linux updates*, *Report a problem* and
+*MCP server for AI assistants*. The AppImage also accepts commands:
 
 | Command | |
 |---|---|
@@ -133,6 +133,7 @@ also accepts commands:
 | `stop` | stop SQL Server, the PDM and the license server |
 | `topsolinux-update` | update this AppImage to the newest TopSo'Linux release, if there is one |
 | `update-check off` | don't look for TopSo'Linux updates at start (`on`: once a day again, the default) |
+| `mcp-install` | install or update the [MCP server for AI assistants](#ai-assistants-mcp) |
 | `debug` | TopSolid hangs or typing goes nowhere: write its windows, keyboard focus and stacks to `~/topsolid-debug-….txt` for a bug report (stops nothing) |
 | `report` | make `~/Downloads/topsolid-report-….zip` with the logs, the system, the GPU and OpenGL driver; asks to record TopSolid (or TopSolid'Update) while the problem happens. No drawings, projects or license in it, their names can show up in the logs |
 | `record`, `record update` | start TopSolid or TopSolid'Update with timestamps in the log and its load measured; closing it makes the report |
@@ -170,6 +171,39 @@ to install the Sentinel LDK Run-time Environment for Linux (`aksusbd`, asks for 
 package comes from a mirror and is checked against a fixed checksum. Check the key at
 <http://localhost:1947> (Sentinel Keys). Answered no? Delete `~/.local/share/topsolinux/.sentinel-skip`
 to be asked again. Remove the runtime with `sudo apt remove aksusbd`.
+
+### AI assistants (MCP)
+
+Right-click TopSolid's icon and choose *MCP server for AI assistants* (or answer yes at the end of the
+installation) to install the community [TopSolid MCP server](https://github.com/Julien38300/topsolid-automation-mcp),
+which lets AI assistants such as Claude Code, Codex or GitHub Copilot in VS Code read and change what is open in TopSolid and search its help and
+API. It is a separate project, not part of TopSo'Linux; questions about it go to
+[its issues](https://github.com/Julien38300/topsolid-automation-mcp/issues). TopSo'Linux downloads its newest
+release (checked against its checksums) to `~/.local/share/topsolinux/mcp`, turns on TopSolid's automation port
+(*Options → General → Automation → Manage remote access*; TopSolid has to be closed for that) and makes the
+command `~/.local/bin/topsolid-mcp`, which keeps working when the AppImage is updated. It is an MCP server on
+stdin and stdout, so any assistant that speaks MCP can use it. Add it to yours:
+
+```
+claude mcp add --scope user topsolid -- ~/.local/bin/topsolid-mcp    # Claude Code
+codex mcp add topsolid -- ~/.local/bin/topsolid-mcp                  # Codex
+```
+
+In VS Code: *MCP: Add Server…* in the command palette, *Command (stdio)*, and the full path of
+`~/.local/bin/topsolid-mcp`.
+
+- It runs under the AppImage's Wine while TopSolid runs: start TopSolid before the assistant, or reconnect the
+  assistant to it afterwards. Closing TopSolid stops it too.
+- One assistant at a time: a second one gets "already running in another process".
+- Newer versions are offered once a day when TopSolid starts, with TopSo'Linux's own updates (`update-check off`
+  turns both off).
+- TopSolid listens on TCP port 8090 on all networks once the automation port is on, as on Windows: on a network
+  you don't trust, block it with a firewall. The server's own HTTP endpoint (port 8080) gets a random key on
+  every start, so only the assistant that started it can use it.
+- Let the assistant ask before it runs `topsolid_execute_script` or `topsolid_modify_script`: they run C# on
+  your computer.
+
+Tested with version 1.8.9 and TopSolid 7.20 (connection, recipes, compiling and running scripts, help search).
 
 ## Troubleshooting
 

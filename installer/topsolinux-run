@@ -16,6 +16,8 @@
 #   record [update]   start TopSolid (or TopSolid'Update) and make that report when it closes
 #   topsolinux-update update this TopSolid AppImage with the newest TopSo'Linux from GitHub, if there is one
 #   update-check on|off  whether TopSolid looks for a newer TopSo'Linux when it starts (once a day; on)
+#   mcp-install       install or update the TopSolid MCP server for AI assistants and turn on TopSolid's automation port
+#   mcp               the MCP server on stdin/stdout, for an AI assistant (while TopSolid runs; see ~/.local/bin/topsolid-mcp)
 #
 # environment: TOPSOLID_GPU=auto|nvidia|default, TOPSOLID_GL=zink|native (Intel: zink, or iris without the draw-ID workaround), TOPSOLID_SCALE=PERCENT,
 #              TOPSOLINUX_UPDATE_CHECK=0 (no update check at start),
@@ -507,18 +509,156 @@ install_latest()
     exec "$inst" update-appimage "$APPIMAGE"
 }
 
+# --- the TopSolid MCP server for AI assistants: a separate community project, downloaded from its releases --
+MCP="$DATA/mcp"
+MCP_SITE=https://github.com/Julien38300/topsolid-automation-mcp
+MCP_LAUNCHER="$HOME/.local/bin/topsolid-mcp"
+
+mcp_version() { cat "$MCP/.release" 2>/dev/null; }
+mcp_newer() { [ "$(printf '%s\n' "$1" "$(mcp_version)" | sort -V | tail -1)" != "$(mcp_version)" ]; }
+
+# the newest release: sets MCP_LATEST, MCP_URL and MCP_SUMS; fails when it can't be found
+find_mcp_latest()  # [TIMEOUT]
+{
+    local info
+    info="$(timeout "${1:-60}" python3 -I "$TOOLS/topsolinux-release.py" mcp-latest 2>>"$LOG")" || return 1
+    { read -r MCP_LATEST; read -r MCP_URL; read -r MCP_SUMS; } <<< "$info"
+    [ -n "$MCP_LATEST" ]
+}
+
+# MCP_URL, checked against its SHA256SUMS, replaces the server in $MCP; its settings.json stays
+mcp_download()
+{
+    local release="$TOOLS/topsolinux-release.py" tmp zip
+    tmp="$(mktemp -d)"
+    zip="$tmp/${MCP_URL##*/}"
+    msg "downloading $MCP_URL"
+    python3 -I "$release" download "$MCP_SUMS" "$tmp/SHA256SUMS" 2>>"$LOG" >/dev/null &&
+        python3 -I "$release" download "$MCP_URL" "$zip" 2>>"$LOG" |
+        if gui; then zenity --progress --auto-close --width=460 --title="$(app_name)" --icon="$ICON" \
+            --text="Downloading the TopSolid MCP server $MCP_LATEST..." 2>/dev/null; else cat >/dev/null; fi
+    if [ "${PIPESTATUS[0]}" != 0 ] || [ ! -f "$zip" ]; then
+        rm -rf "$tmp"
+        tell error "Downloading the TopSolid MCP server $MCP_LATEST failed or was cancelled."
+        return 1
+    fi
+    # made on Windows: CRLF
+    if ! (cd "$tmp" && tr -d '\r' < SHA256SUMS | grep -F " ${zip##*/}" | sha256sum -c --status); then
+        rm -rf "$tmp"
+        tell error "The downloaded TopSolid MCP server doesn't match its checksum, nothing was changed."
+        return 1
+    fi
+    rm -rf "$MCP.new"
+    if ! python3 -I "$release" unzip "$zip" "$MCP.new" 2>>"$LOG" || [ ! -f "$MCP.new/TopSolidMcpServer.exe" ]; then
+        rm -rf "$tmp" "$MCP.new"
+        tell error "Unpacking the TopSolid MCP server failed, see <tt>${LOG/#$HOME/\~}</tt>."
+        return 1
+    fi
+    rm -rf "$tmp"
+    [ -f "$MCP/settings.json" ] && cp -p "$MCP/settings.json" "$MCP.new/"
+    echo "$MCP_LATEST" > "$MCP.new/.release"
+    rm -rf "$MCP.old"
+    [ -d "$MCP" ] && mv "$MCP" "$MCP.old"
+    mv "$MCP.new" "$MCP" && rm -rf "$MCP.old"
+    msg "TopSolid MCP server $MCP_LATEST installed in $MCP"
+}
+
+# Options → General → Automation → Manage remote access: the MCP server reaches TopSolid on TCP port 8090.
+# TopSolid writes its options when it closes, so this is set while it is closed.
+remote_access_on() { grep -qs '<Value name="ManagesTcp" type="Bool"[^>]*>True<' "$USERCONFIG"; }
+enable_remote_access()
+{
+    mkdir -p "${USERCONFIG%/*}"
+    python3 "$TOOLS/userconfig.py" "$USERCONFIG" TopSolid/Kernel/SX/Automating ManagesTcp Bool True 2>>"$LOG" &&
+        python3 "$TOOLS/userconfig.py" --if-missing "$USERCONFIG" TopSolid/Kernel/SX/Automating TcpPort Int 8090 2>>"$LOG"
+}
+
+# a fixed command for AI assistants: the AppImage's name changes with every update, appimage.path follows it
+mcp_launcher()
+{
+    mkdir -p "${MCP_LAUNCHER%/*}"
+    cat > "$MCP_LAUNCHER" <<EOF
+#!/bin/sh
+# made by TopSo'Linux: the TopSolid MCP server for AI assistants (stdio), while TopSolid runs
+app="\$(cat "$DATA/appimage.path" 2>/dev/null)"
+[ -x "\$app" ] || app="${APPIMAGE:-$HERE/AppRun}"
+exec "\$app" mcp "\$@"
+EOF
+    chmod +x "$MCP_LAUNCHER"
+}
+
+# App menu "MCP server for AI assistants": install or update it, turn on TopSolid's automation port and
+# make the command for AI assistants
+mcp_install()  # [offer]
+{
+    local have
+    have="$(mcp_version)"
+    # offer: asked after the installation, only when it isn't there, and no error without GitHub
+    [ "${1:-}" = offer ] && [ -n "$have" ] && return 0
+    if ! find_mcp_latest; then
+        [ "${1:-}" = offer ] && { msg "not offering the TopSolid MCP server: GitHub can't be reached"; return 0; }
+        tell error "Looking for the TopSolid MCP server on GitHub failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1
+    fi
+    if [ -z "$have" ]; then
+        tell question "<big><b>MCP server for AI assistants</b></big>\n\nThe TopSolid MCP server lets AI assistants such as Claude Code, Codex or GitHub Copilot in VS Code read and change what is open in TopSolid, and search TopSolid's help and API. It is a <a href=\"$MCP_SITE\">separate community project</a>, not part of TopSo'Linux or TopSolid.\n\nInstall version $MCP_LATEST? It is downloaded from GitHub (11 MB), and TopSolid's automation port gets turned on (<i>Options → General → Automation → Manage remote access</i>). TopSolid then listens on TCP port 8090 on all networks, as on Windows: on a network you don't trust, block that port with a firewall." ||
+            return 0
+    fi
+    if ! remote_access_on && topsolid_running; then
+        tell error "Close TopSolid first, then choose this again: TopSolid saves its options when it closes, and would turn its automation port off again."
+        return 1
+    fi
+    if [ -z "$have" ] || mcp_newer "$MCP_LATEST"; then
+        mcp_download || return 1
+    fi
+    remote_access_on || enable_remote_access ||
+        { tell error "Turning on TopSolid's automation port failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1; }
+    mcp_launcher
+    tell info "<big><b>The TopSolid MCP server $(mcp_version) is installed</b></big>\n\nAdd it to your AI assistant as the command <tt>${MCP_LAUNCHER/#$HOME/\~}</tt>, for example:\n• Claude Code: <tt>claude mcp add --scope user topsolid -- ${MCP_LAUNCHER/#$HOME/\~}</tt>\n• Codex: <tt>codex mcp add topsolid -- ${MCP_LAUNCHER/#$HOME/\~}</tt>\n• VS Code: <i>MCP: Add Server…</i> → <i>Command (stdio)</i>, with this command\n\nIt works while TopSolid runs: start TopSolid before the assistant, or reconnect the assistant to it afterwards. Let the assistant ask before it runs scripts (<tt>topsolid_execute_script</tt>, <tt>topsolid_modify_script</tt>): they run on your computer. Newer versions are offered with TopSo'Linux's updates.\n\nQuestions about the MCP server: <a href=\"$MCP_SITE/issues\">its project</a>."
+}
+
+# The MCP server on stdin and stdout, for an AI assistant: nothing else may write to stdout
+mcp_server()
+{
+    [ -f "$MCP/TopSolidMcpServer.exe" ] ||
+        { msg "the TopSolid MCP server is not installed: right-click TopSolid in the app menu, MCP server for AI assistants"; exit 1; }
+    # without TopSolid, Wine would start SQL Server and the PDM for it; closing TopSolid stops it again (stop_services)
+    topsolid_running || { msg "TopSolid is not running: start it, then reconnect the AI assistant to the MCP server"; exit 1; }
+    # its HTTP endpoint on port 8080 listens on all networks under Wine and without a key answers anyone
+    TOPSOLID_MCP_API_KEY="$(head -c 32 /dev/urandom | base64 | tr -d '/+=')"
+    export TOPSOLID_MCP_API_KEY
+    cd "$WINEPREFIX/drive_c" && exec "$WINE" "$MCP/TopSolidMcpServer.exe" --no-tray "$@"
+}
+
+# a newer MCP server, asked like a newer TopSo'Linux (start_update_check); fails when GitHub can't be reached
+mcp_update_check()
+{
+    local answer
+    find_mcp_latest 15 || return 1
+    mcp_newer "$MCP_LATEST" && [ "$(cat "$DATA/.mcp-update-skip" 2>/dev/null)" != "$MCP_LATEST" ] || return 0
+    msg "TopSolid MCP server $MCP_LATEST is available"
+    answer="$(zenity --question --width=480 --title="$(app_name)" --icon="$ICON" \
+        --ok-label="Update now" --cancel-label="Later" --extra-button="Skip this version" \
+        --text="<big><b>TopSolid MCP server $MCP_LATEST is available</b></big>\n\nThis computer has $(mcp_version). After the update, reconnect AI assistants that use it.\n\n<a href=\"$MCP_SITE/releases/tag/v$MCP_LATEST\">What's new</a>\n\n<small>Turn this check off with the command <tt>update-check off</tt>.</small>" 2>/dev/null)" &&
+        mcp_download
+    [ "$answer" = "Skip this version" ] && echo "$MCP_LATEST" > "$DATA/.mcp-update-skip" && msg "skipping MCP server $MCP_LATEST"
+    return 0
+}
+
 # At most once a day, in the background while TopSolid starts: offer a newer TopSo'Linux. Off with
 # TOPSOLINUX_UPDATE_CHECK=0 or the command update-check off; no network means no question
 UPDATE_CHECK=""
 start_update_check()
 {
     local stamp="$DATA/.update-check"
-    [ "${TOPSOLINUX_UPDATE_CHECK:-1}" != 0 ] && [ "$(cat "$DATA/update-check" 2>/dev/null)" != off ] &&
-        [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ] && gui || return 0
+    [ "${TOPSOLINUX_UPDATE_CHECK:-1}" != 0 ] && [ "$(cat "$DATA/update-check" 2>/dev/null)" != off ] && gui || return 0
+    { [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ]; } || [ -n "$(mcp_version)" ] || return 0
     [ -n "$(find "$stamp" -mmin -1440 2>/dev/null)" ] && return 0
     (
         # after TopSolid's own splash
         sleep 30
+        # first: updating TopSo'Linux replaces this script
+        [ -n "$(mcp_version)" ] && mcp_update_check && touch "$stamp"
+        [ -f "${APPIMAGE:-}" ] && [ -n "$TSL_VERSION" ] || exit 0
         find_latest 15 || exit 0
         touch "$stamp"
         newer "$LATEST" && [ "$(cat "$DATA/.update-skip" 2>/dev/null)" != "$LATEST" ] || exit 0
@@ -786,6 +926,7 @@ exec 2> >(tee -a "$LOG" >&2)
 # stopping the services ends with wineserver -k: wait for a stop in progress, or it kills what starts now
 [ "${1:-}" = stop ] || flock -w 120 "$DATA/.stop.lock" true 2>/dev/null
 echo "=== $(date '+%F %T') $0 ${*:-}" >&2
+[ "${1:-}" = mcp ] && { shift; mcp_server "$@"; }
 
 INSTALL=0
 # a broken Gear Lever settings file stops Gear Lever from starting
@@ -817,6 +958,7 @@ install_prefix
 cd "$WINEPREFIX/drive_c" 2>/dev/null
 remove_auto_drives
 find_version
+[ "${1:-}" = mcp-install ] && { mcp_install "${2:-}"; exit; }
 # settings that newer versions of the installer make, for a prefix made by an older one
 if [ -f "$TOOLS/prefix-settings.sh" ]; then
     . "$TOOLS/prefix-settings.sh"

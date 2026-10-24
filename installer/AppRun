@@ -642,7 +642,7 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
-Actions=update;license;spacemouse;winecfg;stop;topsolinux;report;
+Actions=update;license;spacemouse;winecfg;stop;topsolinux;report;mcp;
 
 [Desktop Action update]
 Name=TopSolid'Update
@@ -671,6 +671,10 @@ Exec=AppRun topsolinux-update
 [Desktop Action report]
 Name=Report a problem
 Exec=AppRun report
+
+[Desktop Action mcp]
+Name=MCP server for AI assistants
+Exec=AppRun mcp-install
 EOF
 }
 
@@ -1107,3 +1111,6 @@ else
     where="Start TopSolid with <tt>${APPIMAGE_OUT/#$HOME/\~}</tt>."
 fi
 info "<big><b>TopSolid $VERSION is installed</b></big>\n\n$where\n\n<b>First start</b>\n• License: without a license file TopSolid starts its 30-day evaluation.\n• PDM connection: choose <i>Local PDM Server</i> and leave user and password empty.\n• Add the libraries you need from TopSolid.\n\nWant TopSolid on another computer? Copy the TopSolid AppImage there and start it (each computer needs its own license).$NOTES"
+# the MCP server for AI assistants is optional: the TopSolid AppImage asks about it itself
+[ $GUI = 1 ] && [ -x "$APPIMAGE_OUT" ] && "$APPIMAGE_OUT" mcp-install offer >> "$LOG" 2>&1
+exit 0
