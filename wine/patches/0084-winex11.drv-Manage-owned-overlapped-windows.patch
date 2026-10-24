@@ -1,0 +1,29 @@
+From b288150a8c4546d1a6753605e80fcadb65b6829c Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sat, 24 Oct 2026 21:07:34 +0200
+Subject: [PATCH] winex11.drv: Manage owned overlapped windows.
+
+An owned window that is neither a popup nor topmost, like a WinForms form
+without border (TopSolid's command prediction), stays with its owner on
+Windows. Unmanaged, it stayed above the other applications.
+---
+ dlls/winex11.drv/window.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 926e09d3952..5d3516b1ae1 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -463,6 +463,9 @@ static BOOL is_window_managed( HWND hwnd, UINT swp_flags, BOOL fullscreen )
+     }
+     /* application windows are managed */
+     if (ex_style & WS_EX_APPWINDOW) return TRUE;
++    /* owned overlapped windows, like borderless WinForms forms, stack with their owner */
++    if (!(style & WS_POPUP) && !(ex_style & WS_EX_TOPMOST) && NtUserGetWindowRelative( hwnd, GW_OWNER ))
++        return TRUE;
+     /* windows that own popups are managed */
+     if (has_owned_popups( hwnd )) return TRUE;
+     /* default: not managed */
+-- 
+2.53.0
+
