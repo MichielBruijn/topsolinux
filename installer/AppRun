@@ -781,6 +781,8 @@ run_update_appimage()
     progress_stop
     trap - TERM # done: closing the message is no cancel
     info "<big><b>The TopSolid AppImage is updated</b></big>\n\n<tt>${UPDATED/#$HOME/\~}</tt> now has $NAME $TSL_VERSION. A TopSolid that is running keeps the old version until you close it.$NOTES"
+    # asked once, also for installations from before it
+    [ $GUI = 1 ] && [ -x "$UPDATED" ] && "$UPDATED" mcp-install offer >> "$LOG" 2>&1
 }
 
 # The TopSolid AppImage was deleted: make it again from the installation, which stays as it is
