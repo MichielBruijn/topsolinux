@@ -572,6 +572,13 @@ enable_remote_access()
     python3 "$TOOLS/userconfig.py" "$USERCONFIG" TopSolid/Kernel/SX/Automating ManagesTcp Bool True 2>>"$LOG" &&
         python3 "$TOOLS/userconfig.py" --if-missing "$USERCONFIG" TopSolid/Kernel/SX/Automating TcpPort Int 8090 2>>"$LOG"
 }
+# installed while TopSolid ran: turned on at the next start of TopSolid, before it reads its options
+MCP_REMOTE_PENDING="$DATA/.mcp-remote-access"
+pending_remote_access()
+{
+    [ -f "$MCP_REMOTE_PENDING" ] && ! topsolid_running || return 0
+    { remote_access_on || enable_remote_access; } && rm -f "$MCP_REMOTE_PENDING" && msg "TopSolid's automation port turned on"
+}
 
 # a fixed command for AI assistants: the AppImage's name changes with every update, appimage.path follows it
 mcp_launcher()
@@ -591,29 +598,34 @@ EOF
 # make the command for AI assistants
 mcp_install()  # [offer]
 {
-    local have
+    local have later=""
     have="$(mcp_version)"
-    # offer: asked after the installation, only when it isn't there, and no error without GitHub
-    [ "${1:-}" = offer ] && [ -n "$have" ] && return 0
+    # offer: asked once, after the installation or an update, only when it isn't there, and no error without GitHub
+    [ "${1:-}" = offer ] && { [ -n "$have" ] || [ -f "$DATA/.mcp-offered" ]; } && return 0
     if ! find_mcp_latest; then
         [ "${1:-}" = offer ] && { msg "not offering the TopSolid MCP server: GitHub can't be reached"; return 0; }
         tell error "Looking for the TopSolid MCP server on GitHub failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1
     fi
+    [ "${1:-}" = offer ] && touch "$DATA/.mcp-offered"
     if [ -z "$have" ]; then
         tell question "<big><b>MCP server for AI assistants</b></big>\n\nThe TopSolid MCP server lets AI assistants such as Claude Code, Codex or GitHub Copilot in VS Code read and change what is open in TopSolid, and search TopSolid's help and API. It is a <a href=\"$MCP_SITE\">separate community project</a>, not part of TopSo'Linux or TopSolid.\n\nInstall version $MCP_LATEST? It is downloaded from GitHub (11 MB), and TopSolid's automation port gets turned on (<i>Options → General → Automation → Manage remote access</i>). TopSolid then listens on TCP port 8090 on all networks, as on Windows: on a network you don't trust, block that port with a firewall." ||
             return 0
     fi
-    if ! remote_access_on && topsolid_running; then
-        tell error "Close TopSolid first, then choose this again: TopSolid saves its options when it closes, and would turn its automation port off again."
-        return 1
-    fi
     if [ -z "$have" ] || mcp_newer "$MCP_LATEST"; then
         mcp_download || return 1
     fi
-    remote_access_on || enable_remote_access ||
-        { tell error "Turning on TopSolid's automation port failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1; }
+    # TopSolid saves its options when it closes, and would turn the port off again
+    if remote_access_on; then
+        rm -f "$MCP_REMOTE_PENDING"
+    elif topsolid_running; then
+        touch "$MCP_REMOTE_PENDING"
+        later="\n\n<b>Close TopSolid and start it again</b>: its automation port is turned on at the next start."
+    else
+        enable_remote_access ||
+            { tell error "Turning on TopSolid's automation port failed, see <tt>${LOG/#$HOME/\~}</tt>."; return 1; }
+    fi
     mcp_launcher
-    tell info "<big><b>The TopSolid MCP server $(mcp_version) is installed</b></big>\n\nAdd it to your AI assistant as the command <tt>${MCP_LAUNCHER/#$HOME/\~}</tt>, for example:\n• Claude Code: <tt>claude mcp add --scope user topsolid -- ${MCP_LAUNCHER/#$HOME/\~}</tt>\n• Codex: <tt>codex mcp add topsolid -- ${MCP_LAUNCHER/#$HOME/\~}</tt>\n• VS Code: <i>MCP: Add Server…</i> → <i>Command (stdio)</i>, with this command\n\nIt works while TopSolid runs: start TopSolid before the assistant, or reconnect the assistant to it afterwards. Let the assistant ask before it runs scripts (<tt>topsolid_execute_script</tt>, <tt>topsolid_modify_script</tt>): they run on your computer. Newer versions are offered with TopSo'Linux's updates.\n\nQuestions about the MCP server: <a href=\"$MCP_SITE/issues\">its project</a>."
+    tell info "<big><b>The TopSolid MCP server $(mcp_version) is installed</b></big>$later\n\nAdd it to your AI assistant as the command <tt>${MCP_LAUNCHER/#$HOME/\~}</tt>, for example:\n• Claude Code: <tt>claude mcp add --scope user topsolid -- ${MCP_LAUNCHER/#$HOME/\~}</tt>\n• Codex: <tt>codex mcp add topsolid -- ${MCP_LAUNCHER/#$HOME/\~}</tt>\n• VS Code: <i>MCP: Add Server…</i> → <i>Command (stdio)</i>, with this command\n\nIt works while TopSolid runs: start TopSolid before the assistant, or reconnect the assistant to it afterwards. Let the assistant ask before it runs scripts (<tt>topsolid_execute_script</tt>, <tt>topsolid_modify_script</tt>): they run on your computer. Newer versions are offered with TopSo'Linux's updates.\n\nQuestions about the MCP server: <a href=\"$MCP_SITE/issues\">its project</a>."
 }
 
 # The MCP server on stdin and stdout, for an AI assistant: nothing else may write to stdout
@@ -969,6 +981,7 @@ setup_crash_dumps
 
 case "${1:-}" in
     "")           apply_scale; apply_format_locale; apply_formats; wait_for_pdm; start_unstick
+                  pending_remote_access
                   splash "# Starting TopSolid..."; splash "watch topsolid.exe"; start_update_check; start_recording
                   run "$TOPSOLID\\TopSolid.exe"; ret=$?; finish_recording
                   # a question about an update that is still open, or the update itself

@@ -175,12 +175,12 @@ to be asked again. Remove the runtime with `sudo apt remove aksusbd`.
 ### AI assistants (MCP)
 
 Right-click TopSolid's icon and choose *MCP server for AI assistants* (or answer yes at the end of the
-installation) to install the community [TopSolid MCP server](https://github.com/Julien38300/topsolid-automation-mcp),
+installation, or after the first update that offers it: it asks once) to install the community [TopSolid MCP server](https://github.com/Julien38300/topsolid-automation-mcp),
 which lets AI assistants such as Claude Code, Codex or GitHub Copilot in VS Code read and change what is open in TopSolid and search its help and
 API. It is a separate project, not part of TopSo'Linux; questions about it go to
 [its issues](https://github.com/Julien38300/topsolid-automation-mcp/issues). TopSo'Linux downloads its newest
 release (checked against its checksums) to `~/.local/share/topsolinux/mcp`, turns on TopSolid's automation port
-(*Options → General → Automation → Manage remote access*; TopSolid has to be closed for that) and makes the
+(*Options → General → Automation → Manage remote access*; when TopSolid runs, at its next start) and makes the
 command `~/.local/bin/topsolid-mcp`, which keeps working when the AppImage is updated. It is an MCP server on
 stdin and stdout, so any assistant that speaks MCP can use it. Add it to yours:
 
