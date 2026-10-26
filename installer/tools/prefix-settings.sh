@@ -5,7 +5,7 @@
 # (re-importing tweaks.reg would reset their SpaceMouse speeds, for example).
 # A new setting: add settings_N with the next N and raise SETTINGS_LEVEL. Never change an existing level.
 # Settings that should follow the desktop on every start (scale, formats) belong in topsolinux-run.
-SETTINGS_LEVEL=8
+SETTINGS_LEVEL=9
 
 # 1.6.5: the installer's settings up to here (tweaks.reg, DLL overrides, crash dialog)
 settings_1() { :; }
@@ -84,6 +84,17 @@ resize_border()
 
 # 1.6.42: Windows 10's resize border (see resize_border)
 settings_8() { resize_border; }
+
+# Wine's HID bus asks SDL for game controllers, and SDL looks for them about a thousand times a second, also
+# while nothing is plugged in. TopSolid uses no game controllers; the SpaceMouse goes through spacenavd.
+# The HID bus reads it when it starts: in a prefix that was running already, from the next start
+no_game_controllers()
+{
+    "$WINE" reg add 'HKLM\System\CurrentControlSet\Services\winebus' /v 'Enable SDL' /t REG_DWORD /d 0 /f >/dev/null 2>&1
+}
+
+# 1.6.50: no game controllers (see no_game_controllers)
+settings_9() { no_game_controllers; }
 
 # the level of the prefix, 0 for one made before levels existed
 settings_level() { local l; l="$(cat "$WINEPREFIX/.topsolinux-settings" 2>/dev/null)"; echo "${l:-0}"; }

@@ -588,6 +588,7 @@ step_finish()
     hardware_rendering >> "$LOG" 2>&1 || { say "Setting up TopSolid's hardware rendering failed"; return 1; }
     home_drive
     resize_border
+    no_game_controllers
     touch "$WINEPREFIX/.topsolinux"
     settings_done
     unlink_desktop
