@@ -24,11 +24,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#define POLL_MS     250
-#define STUCK_POLLS 4       /* about a second: a thread that pumps messages paints within milliseconds */
+#define POLL_MS     500     /* each poll asks the wineserver about every window: it serves TopSolid too */
+#define STUCK_POLLS 3       /* a second or more: a thread that pumps messages paints within milliseconds */
 #define ANSWER_MS   50      /* a thread in the loop answers WM_NULL in under a millisecond */
 #define MAX_SEEN    256
-#define SERVICE_POLLS 40    /* the license server: every 10 seconds */
+#define SERVICE_POLLS 20    /* the license server: every 10 seconds */
 #define LICENSE_SERVICE L"Sentinel RMS License Manager"
 
 struct seen { HWND hwnd; int polls; };
@@ -77,7 +77,8 @@ static BOOL CALLBACK check_child(HWND hwnd, LPARAM lp)
 
 static BOOL CALLBACK check_top(HWND hwnd, LPARAM lp)
 {
-    EnumChildWindows(hwnd, check_child, 0);
+    /* the children of a hidden window are hidden too */
+    if (IsWindowVisible(hwnd)) EnumChildWindows(hwnd, check_child, 0);
     return TRUE;
 }
 
