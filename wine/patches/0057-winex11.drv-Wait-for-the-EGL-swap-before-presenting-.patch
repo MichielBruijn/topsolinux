@@ -1,4 +1,4 @@
-From 58a06906a6de0d25ebb53fde143e2ab4b0b3c73f Mon Sep 17 00:00:00 2001
+From 77e37ab1df8028b10d6f9b60b92cf44aedfd7338 Mon Sep 17 00:00:00 2001
 From: Michiel Bruijn <michiel@bruijn.nu>
 Date: Mon, 5 Oct 2026 21:24:31 +0200
 Subject: [PATCH] winex11.drv: Wait for the EGL swap before presenting
@@ -8,26 +8,28 @@ The driver puts the new frame in the offscreen window asynchronously, over
 its own X connection, so the copy to the toplevel often showed the previous
 frame. An application that draws once after a change, such as a CAD view
 after deleting an object, kept showing the old picture until it drew again.
+
+A round trip on our own connection is enough: eglSwapBuffers() has sent the
+frame already, and the server takes it before answering. glFinish() as well
+kept the application waiting for the GPU on every frame (3 to 6 ms of each
+frame in TopSolid, against under a millisecond with the round trip alone).
 ---
- dlls/winex11.drv/opengl.c | 7 ++++++-
- 1 file changed, 6 insertions(+), 1 deletion(-)
+ dlls/winex11.drv/opengl.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
-index 6f4b6d1..23e7f8e 100644
+index 6f4b6d1dcfd..20fa1c7d82e 100644
 --- a/dlls/winex11.drv/opengl.c
 +++ b/dlls/winex11.drv/opengl.c
-@@ -1489,8 +1489,13 @@ static BOOL x11drv_egl_surface_swap( struct opengl_drawable *base )
+@@ -1489,8 +1489,10 @@ static BOOL x11drv_egl_surface_swap( struct opengl_drawable *base )
  
      funcs->p_eglSwapBuffers( egl->display, gl->base.surface );
  
-+    /* the driver puts the frame in the window asynchronously, over its own connection: wait for it,
-+     * else the copy below shows the previous frame until the next swap */
++    /* the driver sends the frame to the window over its own connection: a round trip on ours lets the
++     * server take it before the copy below, else that copy shows the previous frame until the next swap */
      if (InterlockedCompareExchange( &base->client->offscreen, 0, 0 ))
 -        XFlush( gdi_display );
-+    {
-+        funcs->p_glFinish();
 +        XSync( gdi_display, False );
-+    }
  
      client_surface_present( base->client );
      return TRUE;
