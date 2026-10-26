@@ -41,6 +41,7 @@ GEARLEVER=it.mijorus.gearlever
 NEED_GB=45
 . "$TOOLS/appimage-name.sh"
 . "$TOOLS/prefix-settings.sh"
+. "$TOOLS/ntsync.sh"
 
 UPDATE_APPIMAGE=0 UPDATE_FROM="" REMAKE_APPIMAGE=0
 MEDIA="" DOWNLOAD=0 REPLACE=0 USE_GEARLEVER=1 APPIMAGE_DIR="" SPACEMOUSE=1 GUI=0 PROGRESS=""
@@ -159,7 +160,7 @@ step_seconds()
 {
     case "$1" in
         download) echo 1500 ;; prefix) echo 60 ;; runtimes) echo 420 ;; setup) echo 300 ;; sqlsetup) echo 150 ;;
-        extras) echo 15 ;; sql) echo 360 ;; pdm) echo 90 ;; finish) echo 15 ;; spacemouse) echo 40 ;;
+        extras) echo 15 ;; sql) echo 360 ;; pdm) echo 90 ;; finish) echo 15 ;; ntsync) echo 15 ;; spacemouse) echo 40 ;;
         appimage) echo 300 ;; gearlever) echo 60 ;; *) echo 60 ;;
     esac
 }
@@ -608,6 +609,18 @@ step_spacemouse()
     return 0
 }
 
+# Wine's waits in the kernel instead of the wineserver (see ntsync.sh)
+step_ntsync()
+{
+    [ "$(ntsync_state)" = off ] || return 0
+    if command -v pkexec >/dev/null; then
+        say "Loading Linux's ntsync driver for Wine (asks for your password)"
+        ntsync_load >> "$LOG" 2>&1 && return 0
+    fi
+    NOTES="$NOTES\n• Smoother TopSolid: load Linux's ntsync driver at every start of the computer (<tt>echo ntsync | sudo tee /etc/modules-load.d/ntsync.conf</tt> and <tt>sudo modprobe ntsync</tt>)."
+    return 0
+}
+
 # TopSolid's licenses (Sentinel RMS) use UDP port 5093. ufw lets through the answer of the one license
 # server asked, but not the answers to the broadcast that looks for license servers on the network,
 # nor other computers asking a license server on this one. Allowed from private networks only, once.
@@ -688,7 +701,7 @@ appdir_runtime()
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
     cp "$TOOLS/unstick.exe" "$TOOLS/guiprobe.exe" "$TOOLS/glinfo.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" \
-        "$TOOLS/prefix-settings.sh" "$TOOLS/userconfig.py" "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/spacemouse.py" \
+        "$TOOLS/prefix-settings.sh" "$TOOLS/ntsync.sh" "$TOOLS/userconfig.py" "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/spacemouse.py" \
         "$TOOLS/report-text.py" "$TOOLS/topsolinux-release.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"
@@ -1083,9 +1096,9 @@ check_system
 { [ $UPDATE_APPIMAGE = 1 ] || [ $REMAKE_APPIMAGE = 1 ]; } && exit 1
 echo "=== $(date '+%F %T') $TITLE, media $MEDIA, gearlever $USE_GEARLEVER, appimage $APPIMAGE_DIR" >> "$LOG"
 
-PLAN="prefix runtimes setup sqlsetup extras sql pdm finish firewall appimage"
+PLAN="prefix runtimes setup sqlsetup extras sql pdm finish ntsync firewall appimage"
 [ $DOWNLOAD = 1 ] && PLAN="download $PLAN"
-[ "$SPACEMOUSE" = 1 ] && PLAN="${PLAN/firewall/spacemouse firewall}"
+[ "$SPACEMOUSE" = 1 ] && PLAN="${PLAN/ntsync/ntsync spacemouse}"
 [ $USE_GEARLEVER = 1 ] && PLAN="$PLAN gearlever"
 progress_start "Installing TopSolid"
 # Wine starts programs in the current folder, not the home folder (Z:\): installers make folders there
@@ -1100,6 +1113,7 @@ step extras
 step sql
 step pdm
 step finish
+step ntsync
 [ "$SPACEMOUSE" = 1 ] && step spacemouse
 step firewall
 step appimage

@@ -49,6 +49,7 @@ TSL_VERSION="$(cat "$HERE/usr/share/doc/topsolinux/VERSION" 2>/dev/null)"
 SPLASH="" SPLASH_FILE="$DATA/.splash"
 ICON="$HERE/usr/share/icons/hicolor/256x256/apps/topsolinux.png"
 [ -f "$TOOLS/appimage-name.sh" ] && . "$TOOLS/appimage-name.sh"
+[ -f "$TOOLS/ntsync.sh" ] && . "$TOOLS/ntsync.sh"
 LSERVRC='C:\Program Files (x86)\Common Files\Thales\Sentinel RMS License Manager\WinNT\lservrc'
 
 msg() { echo "topsolinux: $*" >&2; }
@@ -455,6 +456,27 @@ sentinel_runtime()
     return 0
 }
 
+# Wine's waits in the kernel instead of the wineserver (see ntsync.sh): offered once to an installation
+# made before the installer loaded the driver
+ntsync_offer()
+{
+    local state
+    command -v ntsync_state >/dev/null || return 0
+    state="$(ntsync_state)"
+    if [ "$state" = off ] && [ ! -f "$DATA/.ntsync-skip" ] && command -v pkexec >/dev/null; then
+        if ! tell question "<b>Smoother TopSolid</b>\n\nLinux's ntsync driver lets Wine do its waiting in the kernel, so TopSolid, SQL Server and the PDM wait less on each other. Load it now and at every start of the computer? This is done once and asks for your password."; then
+            touch "$DATA/.ntsync-skip"
+        elif ntsync_load >> "$LOG" 2>&1; then
+            state=on
+            # a wineserver that already runs keeps waiting without it
+            pgrep -u "$(id -u)" -x wineserver >/dev/null && msg "ntsync loaded, used from the next start of the background services"
+        else
+            tell error "Loading the ntsync driver failed (see ${LOG/#$HOME/\~}). TopSolid starts without it."
+        fi
+    fi
+    msg "ntsync: $state"
+}
+
 # the newest release on GitHub: sets LATEST, LATEST_URL and LATEST_SUMS; fails when it can't be found
 find_latest()  # [TIMEOUT]
 {
@@ -781,6 +803,7 @@ system_info()  # [gl]: also which OpenGL driver Wine uses (starts the prefix)
     . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-?}, kernel $(uname -r)"
     echo "desktop: ${XDG_CURRENT_DESKTOP:-?}, session ${XDG_SESSION_TYPE:-?}, DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
     echo "CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) threads"
+    command -v ntsync_state >/dev/null && echo "ntsync: $(ntsync_state)"
     free -h | sed -n '1,2p'
     df -h "$DATA" "$HOME" 2>/dev/null | uniq
     echo; echo "=== graphics"
@@ -944,7 +967,7 @@ INSTALL=0
 # a broken Gear Lever settings file stops Gear Lever from starting
 command -v gearlever_conf >/dev/null && gearlever_conf
 [ -z "${1:-}" ] && offer_install && INSTALL=1
-case "${1:-}" in ""|update|license-tool) sentinel_runtime; splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
+case "${1:-}" in ""|update|license-tool) sentinel_runtime; ntsync_offer; splash_start "Starting Wine..."; trap splash_stop EXIT ;; esac
 [ $INSTALL = 1 ] && { install_appimage; splash "# Starting Wine..."; }
 fix_appimage_name
 command -v add_update_actions >/dev/null && [ -f "${APPIMAGE:-}" ] && add_update_actions "$APPIMAGE"

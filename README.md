@@ -49,8 +49,10 @@ Briefly tested, with care:
      `~/Downloads`, your home folder and mounted drives), choose another folder, or let the installer download
      TopSolid from TopSolid's own server (the one `TopSolid.Downloader.exe` uses).
    The installer also puts TopSolid in your app menu with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)
-   and installs SpaceMouse support (spacenavd); Flatpak and Gear Lever are installed when missing. Installing
-   packages asks for your password.
+   and installs SpaceMouse support (spacenavd); Flatpak and Gear Lever are installed when missing. It also loads
+   Linux's `ntsync` driver at every start of the computer, so Wine does its waiting in the kernel instead of in
+   the wineserver (an installation made before 1.6.50 asks once when TopSolid starts). Installing packages and
+   loading the driver ask for your password.
 4. TopSolid's own installer opens. Choose the modules you use, click Install and accept the license
    agreement. **Its installation of SQL Server stops with an error. That is expected:** TopSo'Linux stops
    it and installs SQL Server itself afterwards. Close the errors and the setup.
