@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Sun, 1 Nov 2026 23:17:50 +0100
+Subject: [PATCH] win32u: Don't flush a window surface when its shape doesn't
+ change.
+
+Every SetWindowPos of a child updates the region of its toplevel's surface,
+and window_surface_set_shape() flushed the surface even when the shape
+stayed the same. A window that lays out its children showed every
+intermediate step: resizing a TopSolid command panel showed the panel at
+its new width with the controls still at the old one, and their old
+pixels next to the new ones. Windows shows a WS_EX_COMPOSITED window only
+once it is painted. Flush like EndPaint does instead, only when the
+application doesn't go idle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AHfFhG2yCUatEx7FMTfCMT
+---
+ dlls/win32u/dce.c    | 7 ++++++-
+ dlls/win32u/window.c | 2 ++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
+index 836156f1d21..2ce51a051a4 100644
+--- a/dlls/win32u/dce.c
++++ b/dlls/win32u/dce.c
+@@ -712,6 +712,8 @@ void window_surface_set_clip( struct window_surface *surface, HRGN clip_region )
+ 
+ void window_surface_set_shape( struct window_surface *surface, HRGN shape_region )
+ {
++    BOOL changed = FALSE;
++
+     window_surface_lock( surface );
+ 
+     if (!shape_region && surface->shape_region)
+@@ -719,17 +721,20 @@ void window_surface_set_shape( struct window_surface *surface, HRGN shape_region
+         NtGdiDeleteObjectApp( surface->shape_region );
+         surface->shape_region = 0;
+         surface->bounds = surface->rect;
++        changed = TRUE;
+     }
+     else if (shape_region && !NtGdiEqualRgn( shape_region, surface->shape_region ))
+     {
+         if (!surface->shape_region) surface->shape_region = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+         NtGdiCombineRgn( surface->shape_region, shape_region, 0, RGN_COPY );
+         surface->bounds = surface->rect;
++        changed = TRUE;
+     }
+ 
+     window_surface_unlock( surface );
+ 
+-    window_surface_flush( surface );
++    /* an unchanged shape would show what is painted so far, like a half laid out window */
++    if (changed) window_surface_flush( surface );
+ }
+ 
+ /*******************************************************************
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+index f776e1191c9..8bb183503d9 100644
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -2121,6 +2121,8 @@ static void update_surface_region( HWND hwnd )
+ done:
+     if (shape) NtGdiDeleteObjectApp( shape );
+     release_win_ptr( win );
++    /* like EndPaint: only an application that doesn't go idle shows its windows while it moves them */
++    flush_window_surfaces( FALSE );
+ }
+ 
+ 
+-- 
+2.53.0
+
