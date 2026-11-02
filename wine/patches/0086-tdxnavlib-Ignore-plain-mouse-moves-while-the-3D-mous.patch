@@ -1,0 +1,92 @@
+From 1d2e9dd3e8c5d636a4e1faa52ee6be12b68ef1ef Mon Sep 17 00:00:00 2001
+From: Michiel Bruijn <michiel@bruijn.nu>
+Date: Mon, 2 Nov 2026 21:09:45 +0100
+Subject: [PATCH] tdxnavlib: Ignore plain mouse moves while the 3D mouse moves
+ the camera.
+
+The application picks and highlights what is under the pointer on every
+mouse move, so moving the mouse during a 3D mouse motion made the motion
+stutter.
+---
+ dlls/tdxnavlib/main.c | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index f376ee10397..f6a588f82c3 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -107,6 +107,7 @@ struct navlib
+     BOOL row_major;
+     BOOL active;
+     HWND hwnd;
++    HHOOK hover_hook;
+     BOOL moving;
+     BOOL navigating;
+     BOOL have_pivot;
+@@ -166,6 +167,39 @@ static BOOL is_foreground(void)
+     return hwnd && GetWindowThreadProcessId( hwnd, &pid ) && pid == GetCurrentProcessId();
+ }
+ 
++/* The application picks and highlights what is under the pointer on every mouse move, which
++ * starves the motion when the mouse moves too. Hide plain mouse moves from the thread while the
++ * camera moves, and send one when it stops so the highlight follows the pointer again. */
++static BOOL hover_dropped;
++
++static LRESULT CALLBACK hover_hook( int code, WPARAM wparam, LPARAM lparam )
++{
++    if (code == HC_ACTION && wparam == WM_MOUSEMOVE && GetKeyState( VK_LBUTTON ) >= 0 &&
++        GetKeyState( VK_RBUTTON ) >= 0 && GetKeyState( VK_MBUTTON ) >= 0)
++    {
++        hover_dropped = TRUE;
++        return 1;
++    }
++    return CallNextHookEx( NULL, code, wparam, lparam );
++}
++
++static void hover_block( struct navlib *nl, BOOL block )
++{
++    INPUT input = { .type = INPUT_MOUSE, .mi.dwFlags = MOUSEEVENTF_MOVE };
++
++    if (block && !nl->hover_hook)
++    {
++        hover_dropped = FALSE;
++        nl->hover_hook = SetWindowsHookExW( WH_MOUSE, hover_hook, NULL, GetCurrentThreadId() );
++    }
++    else if (!block && nl->hover_hook)
++    {
++        UnhookWindowsHookEx( nl->hover_hook );
++        nl->hover_hook = NULL;
++        if (hover_dropped) SendInput( 1, &input, sizeof(input) );
++    }
++}
++
+ static struct accessor *find_accessor( struct navlib *nl, const char *name )
+ {
+     SIZE_T i;
+@@ -438,6 +472,7 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+             TRACE( "motion start, application timing %d\n", nl->app_timing );
+             nl->moving = TRUE;
+             nl->last_tick = now;
++            hover_block( nl, TRUE );
+             set_bool( nl, "motion", TRUE );
+             SetTimer( hwnd, MOTION_TIMER, MOTION_INTERVAL, NULL );
+         }
+@@ -450,6 +485,7 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+         KillTimer( hwnd, MOTION_TIMER );
+         nl->moving = FALSE;
+         set_bool( nl, "motion", FALSE );
++        hover_block( nl, FALSE );
+         return 0;
+     }
+     if (nl->navigating) return 0;
+@@ -622,6 +658,7 @@ LONG __cdecl NlClose( UINT64 handle )
+     LeaveCriticalSection( &cs );
+     if (!nl) return NAVLIB_ERROR( NAVLIB_EINVAL );
+ 
++    if (nl->hover_hook) UnhookWindowsHookEx( nl->hover_hook );
+     if (nl->hwnd)
+     {
+         SetWindowLongPtrW( nl->hwnd, GWLP_USERDATA, 0 );
+-- 
+2.53.0
+
