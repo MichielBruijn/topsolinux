@@ -1,0 +1,42 @@
+From 59b4c9a790a3fbb764bf2501c11f4d1e1bfa7dca Mon Sep 17 00:00:00 2001
+From: topsolinux <topsolinux@invalid>
+Date: Tue, 10 Nov 2026 13:20:35 +0100
+Subject: [PATCH] tdxnavlib: Let one plain mouse move through every 30 ms
+ during a 3D motion.
+
+---
+ dlls/tdxnavlib/main.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index f6a588f82c3..9fcd07b9ebc 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -171,12 +171,24 @@ static BOOL is_foreground(void)
+  * starves the motion when the mouse moves too. Hide plain mouse moves from the thread while the
+  * camera moves, and send one when it stops so the highlight follows the pointer again. */
+ static BOOL hover_dropped;
++static DWORD hover_pass_tick;
++
++/* the application picks under the pointer on each move it gets: let one through per interval, so
++ * the pointer stays where the application knows it */
++#define HOVER_PASS_INTERVAL 30
+ 
+ static LRESULT CALLBACK hover_hook( int code, WPARAM wparam, LPARAM lparam )
+ {
+     if (code == HC_ACTION && wparam == WM_MOUSEMOVE && GetKeyState( VK_LBUTTON ) >= 0 &&
+         GetKeyState( VK_RBUTTON ) >= 0 && GetKeyState( VK_MBUTTON ) >= 0)
+     {
++        DWORD now = GetTickCount();
++
++        if (now - hover_pass_tick >= HOVER_PASS_INTERVAL)
++        {
++            hover_pass_tick = now;
++            return CallNextHookEx( NULL, code, wparam, lparam );
++        }
+         hover_dropped = TRUE;
+         return 1;
+     }
+-- 
+2.53.0
+
