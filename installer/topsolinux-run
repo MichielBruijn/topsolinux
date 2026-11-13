@@ -365,18 +365,46 @@ apply_format_locale()
     echo "$want" > "$DATA/.format-locale"
 }
 
+# X's geometry of the windows guiprobe placed (xwin=), next to Wine's: when they differ, the picture
+# is drawn shifted against the mouse and clicks land beside what is under the pointer
+x_places()  # GUIPROBE-OUTPUT
+{
+    local line h xw wl wt wr wb cx cy x y w hh
+    command -v xwininfo >/dev/null || { echo "(xwininfo not installed)"; return; }
+    printf '%s\n' "$1" | grep '^placement.* xwin=' | while read -r line; do
+        h="$(printf '%s' "$line" | awk '{print $2}')"
+        xw="${line##*xwin=}"
+        read -r wl wt wr wb <<< "$(printf '%s' "$line" | sed -n 's/.* rect=\(-\?[0-9]*\),\(-\?[0-9]*\)-\(-\?[0-9]*\),\(-\?[0-9]*\) .*/\1 \2 \3 \4/p')"
+        eval "$(xwininfo -id "$xw" 2>/dev/null | awk -F: '
+            /Absolute upper-left X/ { print "x=" $2+0 } /Absolute upper-left Y/ { print "y=" $2+0 }
+            /^ *Width/ { print "w=" $2+0 } /^ *Height/ { print "hh=" $2+0 }')"
+        read -r cx cy <<< "$(printf '%s' "$line" | sed -n 's/.* client-origin=\(-\?[0-9]*\),\(-\?[0-9]*\).*/\1 \2/p')"
+        [ -n "${x:-}" ] || { echo "$h $xw: no X window"; continue; }
+        echo "$h $xw: Wine ${wl},${wt} $((wr - wl))x$((wb - wt)) (client at ${cx},${cy}), X ${x},${y} ${w}x${hh}:" \
+            "X - Wine $((x - wl)),$((y - wt)) size $((w - wr + wl))x$((hh - wb + wt)), X - client $((x - cx)),$((y - cy))"
+        command -v xprop >/dev/null &&
+            xprop -id "$xw" _NET_WM_STATE _NET_FRAME_EXTENTS _GTK_FRAME_EXTENTS 2>/dev/null | sed 's/^/    /'
+        x=
+    done
+}
+
 # the managed and native stacks of a hanging program, for a bug report; attaches only to that program
 # the windows, keyboard focus and stacks of a running PROGRAM.exe (TopSolid.exe by default)
 program_state()  # [PROGRAM]
 {
-    local name="${1:-TopSolid}" pid clr="$HERE/usr/lib/topsolinux/clrstack"
+    local name="${1:-TopSolid}" pid probe clr="$HERE/usr/lib/topsolinux/clrstack"
     name="${name%.exe}.exe"
     pid="$("$WINE" winedbg --command "info process" 2>/dev/null |
         awk -v n="'$name'" 'tolower($NF) == tolower(n) { gsub(/[^0-9a-fA-F]/, "", $1); print $1; exit }')"
     [ -n "$pid" ] || { echo "$name is not running"; return 1; }
     echo "=== $name (pid $pid), $(date '+%F %T'), TopSo'Linux $TSL_VERSION"
     echo; echo "=== windows, keyboard focus and mouse capture"
-    [ -f "$TOOLS/guiprobe.exe" ] && "$WINE" "$TOOLS/guiprobe.exe" "$pid"
+    if [ -f "$TOOLS/guiprobe.exe" ]; then
+        probe="$("$WINE" "$TOOLS/guiprobe.exe" "$pid" 2>/dev/null | tr -d '\r')"
+        printf '%s\n' "$probe"
+        echo; echo "=== where X has these windows"
+        x_places "$probe"
+    fi
     echo; echo "=== managed stacks"
     if [ -f "$clr/clrstack.exe" ]; then
         # .NET doesn't load programs from Z:, so it runs from the prefix
@@ -818,6 +846,16 @@ system_info()  # [gl]: also which OpenGL driver Wine uses (starts the prefix)
     [ "${1:-}" = gl ] && { echo "OpenGL under Wine:"; gl_info | sed 's/^/  /'; }
     echo; echo "=== screens"
     command -v xrandr >/dev/null && xrandr --listmonitors 2>/dev/null
+    # GNOME's own layout and scale per monitor; X11 sees the logical sizes
+    busctl --user --json=short call org.gnome.Mutter.DisplayConfig /org/gnome/Mutter/DisplayConfig \
+        org.gnome.Mutter.DisplayConfig GetCurrentState 2>/dev/null | python3 -I -c '
+import json, sys
+_, monitors, logical, props = json.load(sys.stdin)["data"]
+print("GNOME layout mode", props.get("layout-mode", {}).get("data"), "(1 = logical, 2 = physical)")
+for x, y, scale, transform, primary, conns, _ in logical:
+    print("  %s at %d,%d scale %g transform %d%s" % (",".join(c[0] for c in conns), x, y, scale, transform,
+          " primary" if primary else ""))' 2>/dev/null
+    echo "text scaling: $(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null)"
     [ -x "$TOOLS/desktop-dpi" ] && echo "desktop dpi: $("$TOOLS/desktop-dpi" 2>/dev/null)"
     echo "scale: $(cat "$DATA/scale" 2>/dev/null || echo auto), LogPixels: $(grep -hi '"LogPixels"' "$WINEPREFIX/user.reg" "$WINEPREFIX/system.reg" 2>/dev/null | tr '\n' ' ')"
     echo; echo "=== services"
