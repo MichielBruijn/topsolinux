@@ -656,40 +656,8 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
-Actions=update;license;spacemouse;settings;stop;topsolinux;report;mcp;
-
-[Desktop Action update]
-Name=TopSolid'Update
-Exec=AppRun update
-
-[Desktop Action license]
-Name=TopSolid license
-Exec=AppRun license-tool
-
-[Desktop Action spacemouse]
-Name=SpaceMouse settings
-Exec=AppRun spacemouse
-
-[Desktop Action settings]
-Name=Settings (scaling, fonts, graphics, Wine)
-Exec=AppRun settings
-
-[Desktop Action stop]
-Name=Stop background services
-Exec=AppRun stop
-
-[Desktop Action topsolinux]
-Name=Check for TopSo'Linux updates
-Exec=AppRun topsolinux-update
-
-[Desktop Action report]
-Name=Report a problem
-Exec=AppRun report
-
-[Desktop Action mcp]
-Name=MCP server for AI assistants
-Exec=AppRun mcp-install
 EOF
+    desktop_actions AppRun
 }
 
 # Wine, the starter and its tools: what a TopSolid AppImage runs, next to the installation in prefix/
