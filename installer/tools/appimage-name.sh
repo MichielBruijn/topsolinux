@@ -105,18 +105,49 @@ settings_action()  # DESKTOPFILE
     case "$ADDED_ACTIONS" in *"$name"*) ;; *) ADDED_ACTIONS="${ADDED_ACTIONS:+$ADDED_ACTIONS, }$name" ;; esac
 }
 
-# what app menu entries made by older versions don't have: "Check for TopSo'Linux updates" (1.6.15),
-# "SpaceMouse settings" (1.6.21), "Report a problem" (1.6.30), the GPU default (1.6.36),
-# "MCP server for AI assistants" (1.6.49) and "Settings" (1.6.54)
+# the right-click actions of TopSolid's app menu entry, in menu order: ID|NAME|ARGUMENTS. The installer's entry
+# is made from this, and older entries are brought up to it at every start (sync_actions)
+DESKTOP_ACTIONS="update|TopSolid'Update|update
+license|TopSolid license|license-tool
+spacemouse|SpaceMouse settings|spacemouse
+settings|Settings (scaling, fonts, graphics, Wine)|settings
+stop|Stop background services|stop
+topsolinux|Check for TopSo'Linux updates|topsolinux-update
+report|Report a problem|report
+mcp|MCP server for AI assistants|mcp-install"
+
+# the Actions line and sections of a new entry whose actions run COMMAND
+desktop_actions()  # COMMAND
+{
+    local id name args
+    printf 'Actions=%s;\n' "$(cut -d'|' -f1 <<< "$DESKTOP_ACTIONS" | paste -sd';')"
+    while IFS='|' read -r id name args; do
+        printf '\n[Desktop Action %s]\nName=%s\nExec=%s %s\n' "$id" "$name" "$1" "$args"
+    done <<< "$DESKTOP_ACTIONS"
+}
+
+# DESKTOPFILE gets the actions it misses, with this version's names and order; actions that aren't TopSo'Linux's
+# stay, behind them. Before 1.6.54 an update only added the actions listed by hand, so entries made by the
+# first versions never got "Wine settings"
+sync_actions()  # DESKTOPFILE COMMAND
+{
+    local id name args ids="" rest
+    grep -qs '^Actions=' "$1" || return 0
+    settings_action "$1"
+    while IFS='|' read -r id name args; do
+        add_action "$1" "$2" "$id" "$name" "$args"
+        sed -i "/^\[Desktop Action $id\]\$/,/^\[/s/^Name=.*/Name=$name/" "$1"
+        ids="$ids$id;"
+    done <<< "$DESKTOP_ACTIONS"
+    rest="$(sed -n 's/^Actions=//p' "$1" | tr ';' '\n' | grep -vxF -e '' $(cut -d'|' -f1 <<< "$DESKTOP_ACTIONS" | sed 's/^/-e /') | tr '\n' ';')"
+    [ "$(sed -n 's/^Actions=//p' "$1")" = "$ids$rest" ] || sed -i "s/^Actions=.*/Actions=$ids$rest/" "$1"
+}
+
+# the app menu entry, as this version makes it
 add_update_action()  # DESKTOPFILE COMMAND
 {
     default_gpu "$1"
-    add_action "$1" "$2" topsolinux "Check for TopSo'Linux updates" topsolinux-update
-    add_action "$1" "$2" spacemouse "SpaceMouse settings" spacemouse
-    add_action "$1" "$2" report "Report a problem" report
-    add_action "$1" "$2" mcp "MCP server for AI assistants" mcp-install
-    settings_action "$1"
-    add_action "$1" "$2" settings "Settings (scaling, fonts, graphics, Wine)" settings
+    sync_actions "$1" "$2"
 }
 
 # the app menu entries that start APPIMAGE
