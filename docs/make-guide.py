@@ -82,7 +82,7 @@ story = [
 
     Paragraph('3. The TopSolid AppImage', h2),
     bullets('Right-click TopSolid\'s icon in the app menu for <i>TopSolid\'Update</i>, the license tool, '
-            '<i>SpaceMouse settings</i>, <i>Wine settings</i>, <i>Stop background services</i> and <i>Check for TopSo\'Linux updates</i>, which '
+            '<i>SpaceMouse settings</i>, <i>Settings</i>, <i>Stop background services</i> and <i>Check for TopSo\'Linux updates</i>, which '
             'updates the AppImage to the newest TopSo\'Linux. TopSolid also looks for one once a day when it starts.',
             '<i>Report a problem</i> makes a zip in your Downloads folder with the logs and what the computer has, to send '
             'to whoever helps you. It can record TopSolid or TopSolid\'Update while the problem happens.',
@@ -124,6 +124,8 @@ table = Table([[Paragraph(c(a), cell), Paragraph(b, cell)] for a, b in [
     ('license FILE', 'install a license file'),
     ('license-tool', 'TopSolid\'s license tool'),
     ('spacemouse', 'SpaceMouse speeds and axes'),
+    ('settings', 'scale, font smoothing, numbers and units, graphics, update check, Wine\'s own settings '
+                 '(same as <i>Settings</i>)'),
     ('stop', 'stop SQL Server, the PDM and the license server'),
     ('topsolinux-update', 'update this AppImage to the newest TopSo\'Linux, if there is one'),
     ('update-check off', 'don\'t look for TopSo\'Linux updates at start (<i>on</i>: once a day again, the default)'),
@@ -153,7 +155,7 @@ story += [
             'Drive Z: is your home folder, Y: the rest of the system (USB sticks, other drives). Images, PDFs '
             'and text files that TopSolid opens, such as a saved screenshot, open in the desktop\'s own programs.',
             'Numbers and units follow the desktop\'s <i>Formats</i>: Dutch formats give a decimal comma and mm. '
-            'To change them: ' + c('regedit') + ', ' + c('HKCU\\Control Panel\\International') + ' ('
+            'To change them: <i>Settings</i>, or ' + c('regedit') + ', ' + c('HKCU\\Control Panel\\International') + ' ('
             + c('sDecimal') + ', ' + c('iMeasure') + ' 0 = metric).',
             'An environment shows as background only with a <i>Perspective</i> or <i>Conical</i> camera, with '
             '<i>Environment as Background</i> on (in the render mode menu, per document). With a parallel camera '

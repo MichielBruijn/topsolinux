@@ -9,6 +9,7 @@
 #   scale PERCENT     size of text and icons, e.g. 150 (kept until changed; 100 = normal)
 #   scale auto        follow the desktop's scale again (the default)
 #   spacemouse        SpaceMouse speeds and axes (works right away, also while TopSolid runs)
+#   settings          scale, font smoothing, numbers and units, graphics, update check, Wine's tools
 #   winecfg | shell | regedit
 #   stop              stop all background services (SQL Server, PDM, license server)
 #   debug [PROGRAM]   write the windows, focus and stacks of a hanging TopSolid (or PROGRAM.exe) to a file, stops nothing
@@ -83,7 +84,7 @@ offer_install()
     grep -qsF "$APPIMAGE" "$HOME/.local/share/applications/"*.desktop && return 1
     app="$(app_name)"
     zenity --question --width=480 --title="$app" --icon="$ICON" --ok-label=Install --cancel-label=Launch \
-        --text="<b>Install</b> puts TopSolid in your app menu with Gear Lever (installed too when missing; installing Flatpak asks for your password) and starts it. Right-click its icon there for TopSolid'Update, the license tool, Wine settings, stopping the background services and TopSo'Linux updates.\n\n<b>Launch</b> only starts TopSolid.\n\n<small>TopSo'Linux $TSL_VERSION</small>" 2>/dev/null
+        --text="<b>Install</b> puts TopSolid in your app menu with Gear Lever (installed too when missing; installing Flatpak asks for your password) and starts it. Right-click its icon there for TopSolid'Update, the license tool, settings (scale, Wine, ...), stopping the background services and TopSo'Linux updates.\n\n<b>Launch</b> only starts TopSolid.\n\n<small>TopSo'Linux $TSL_VERSION</small>" 2>/dev/null
 }
 
 install_appimage()
@@ -172,7 +173,9 @@ find_version()
 
 setup_gpu()
 {
-    local mode="${TOPSOLID_GPU:-auto}"
+    # the environment, else the settings (settings.py)
+    local mode="${TOPSOLID_GPU:-$(cat "$DATA/gpu" 2>/dev/null)}" gl="${TOPSOLID_GL:-$(cat "$DATA/gl" 2>/dev/null)}"
+    mode="${mode:-auto}"
     if [ "$mode" = auto ]; then
         # a hybrid laptop draws on its integrated GPU; on the NVIDIA one when the app menu's "Launch using
         # Discrete Graphics Card" (or prime-run) asked for it
@@ -192,10 +195,10 @@ setup_gpu()
     # color made a black bar in an assembly (https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16588). The CPU loop iris uses below the threshold costs nothing measurable.
     # zink draws it right too, but has no polygon stipple (until Mesa 26.3): black instead of hatched cut faces.
     if [ "$mode" != nvidia ] && [ "$(primary_gpu_vendor)" = 0x8086 ]; then
-        if [ "${TOPSOLID_GL:-}" = zink ] && compgen -G '/usr/share/vulkan/icd.d/intel_icd*.json' >/dev/null; then
+        if [ "$gl" = zink ] && compgen -G '/usr/share/vulkan/icd.d/intel_icd*.json' >/dev/null; then
             export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
             echo "topsolinux: OpenGL through zink" >&2
-        elif [ "${TOPSOLID_GL:-}" != native ]; then
+        elif [ "$gl" != native ]; then
             export generated_indirect_threshold="${generated_indirect_threshold:-1000000}"
         fi
     fi
@@ -322,12 +325,16 @@ apply_formats()
     local dec thou list measure want cur last
     dec="$(locale decimal_point 2>/dev/null)"
     thou="$(locale thousands_sep 2>/dev/null)"
+    # chosen in the settings (settings.py)
+    case "$(cat "$DATA/decimal" 2>/dev/null)" in point) dec=. ;; comma) dec=, ;; esac
     [ -n "$dec" ] || return
+    [ "$thou" = "$dec" ] && { if [ "$dec" = , ]; then thou=.; else thou=,; fi; }
     # e.g. the narrow no-break space of French: a plain space
     printf %s "$thou" | LC_ALL=C grep -q '[^ -~]' && thou=" "
     if [ "$dec" = "," ]; then list=";"; else list=","; fi
     # LC_MEASUREMENT: 1 metric, 2 US; Windows: 0 metric, 1 US
     if [ "$(locale measurement 2>/dev/null)" = 2 ]; then measure=1; else measure=0; fi
+    case "$(cat "$DATA/measure" 2>/dev/null)" in metric) measure=0 ;; us) measure=1 ;; esac
     want="$dec|$thou|$list|$measure"
     cur="$(reg_international sDecimal)|$(reg_international sThousand)|$(reg_international sList)|$(reg_international iMeasure)"
     last="$(cat "$DATA/.auto-formats" 2>/dev/null)"
@@ -340,6 +347,26 @@ apply_formats()
         set_international iMeasure "$measure"
     fi
     echo "$(reg_international LocaleName)|$want" > "$DATA/.auto-formats"
+}
+
+# the raw value of NAME in user.reg's [SECTION] (backslashes doubled, as in the file): "text" or dword:0000002a
+reg_user()  # SECTION NAME
+{
+    S="[$1]" V="\"$2\"=" awk 'index($0, "[") == 1 { s = index($0, ENVIRON["S"]) == 1; next }
+        s && index($0, ENVIRON["V"]) == 1 { print substr($0, length(ENVIRON["V"]) + 1); exit }' "$WINEPREFIX/user.reg" 2>/dev/null
+}
+
+# font smoothing chosen in the settings (settings.py); without a choice Wine's (greyscale) or regedit's stays
+apply_font_smoothing()
+{
+    local on type
+    case "$(cat "$DATA/font-smoothing" 2>/dev/null)" in
+        off) on=0 type=1 ;; greyscale) on=2 type=1 ;; subpixel) on=2 type=2 ;; *) return 0 ;;
+    esac
+    [ "$(reg_user 'Control Panel\\Desktop' FontSmoothing)" = "\"$on\"" ] &&
+        [ "$(reg_user 'Control Panel\\Desktop' FontSmoothingType)" = "dword:0000000$type" ] && return 0
+    "$WINE" reg add 'HKCU\Control Panel\Desktop' /v FontSmoothing /d "$on" /f >/dev/null
+    "$WINE" reg add 'HKCU\Control Panel\Desktop' /v FontSmoothingType /t REG_DWORD /d "$type" /f >/dev/null
 }
 
 # stdout only: the first Wine program starts the services, and they keep its stderr (the log)
@@ -1041,17 +1068,17 @@ setup_gpu
 setup_crash_dumps
 
 case "${1:-}" in
-    "")           apply_scale; apply_format_locale; apply_formats; wait_for_pdm; start_unstick
+    "")           apply_scale; apply_format_locale; apply_formats; apply_font_smoothing; wait_for_pdm; start_unstick
                   pending_remote_access
                   splash "# Starting TopSolid..."; splash "watch topsolid.exe"; start_update_check; start_recording
                   run "$TOPSOLID\\TopSolid.exe"; ret=$?; finish_recording
                   # a question about an update that is still open, or the update itself
                   [ -n "$UPDATE_CHECK" ] && wait "$UPDATE_CHECK"
                   exit $ret ;;
-    update)       apply_scale; apply_format_locale; apply_formats; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
+    update)       apply_scale; apply_format_locale; apply_formats; apply_font_smoothing; splash "# Starting TopSolid'Update..."; splash "watch topsolid.update.exe"
                   start_recording
                   run "C:\\Program Files\\TOPSOLID\\TopSolid Update\\bin\\TopSolid.Update.exe"; finish_recording ;;
-    license-tool) apply_scale; apply_format_locale; apply_formats; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"
+    license-tool) apply_scale; apply_format_locale; apply_formats; apply_font_smoothing; splash "# Starting the license tool..."; splash "watch topsolid.license.exe"
                   run "$TOPSOLID\\TopSolid.License.exe" ;;
     license)
         [ -f "${2:-}" ] || { msg "usage: $0 license FILE"; exit 1; }
@@ -1062,8 +1089,11 @@ case "${1:-}" in
                   topsolid_running || "$WINESERVER" -w ;;
     # without GTK 3 the settings are in regedit, HKEY_CURRENT_USER\Software\Wine\TDxNavLib
     spacemouse)   python3 "$TOOLS/spacemouse.py" 2>>"$LOG"
-                  [ $? = 2 ] && { apply_scale; apply_format_locale; apply_formats; run regedit; } ;;
-    winecfg|regedit) apply_scale; apply_format_locale; apply_formats; run "$1" ;;
+                  [ $? = 2 ] && { apply_scale; apply_format_locale; apply_formats; apply_font_smoothing; run regedit; } ;;
+    # without GTK 3: Wine's settings
+    settings)     export TOPSOLINUX_RUN="$(readlink -f "$0")" TOPSOLINUX_HOME="$DATA"; python3 "$TOOLS/settings.py" 2>>"$LOG"
+                  [ $? = 2 ] && { apply_scale; apply_format_locale; apply_formats; apply_font_smoothing; run winecfg; } ;;
+    winecfg|regedit) apply_scale; apply_format_locale; apply_formats; apply_font_smoothing; run "$1" ;;
     shell)        msg "WINEPREFIX=$WINEPREFIX, wine is on PATH; exit the shell to stop the services"
                   bash; stop_services ;;
     stop)         stop_services ;;
