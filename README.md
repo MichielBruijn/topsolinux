@@ -120,7 +120,7 @@ options if you want it.
 ## Everyday use
 
 Right-click TopSolid's icon in the app menu for TopSolid'Update, the license tool, *SpaceMouse settings*,
-Wine settings, *Stop background services*, *Check for TopSo'Linux updates*, *Report a problem* and
+*Settings*, *Stop background services*, *Check for TopSo'Linux updates*, *Report a problem* and
 *MCP server for AI assistants*. The AppImage also accepts commands:
 
 | Command | |
@@ -132,6 +132,7 @@ Wine settings, *Stop background services*, *Check for TopSo'Linux updates*, *Rep
 | `scale 150` | text and icons at 150% (100 = normal), kept until changed |
 | `scale auto` | follow the desktop's scale again (the default) |
 | `spacemouse` | SpaceMouse speeds and axes |
+| `settings` | scale, font smoothing, numbers and units, graphics, update check, and Wine's own settings |
 | `stop` | stop SQL Server, the PDM and the license server |
 | `topsolinux-update` | update this AppImage to the newest TopSo'Linux release, if there is one |
 | `update-check off` | don't look for TopSo'Linux updates at start (`on`: once a day again, the default) |
@@ -143,9 +144,23 @@ Wine settings, *Stop background services*, *Check for TopSo'Linux updates*, *Rep
 
 TopSolid follows the scale of your desktop by itself, unless you set one with `scale` or in Wine's settings.
 
+*Settings* (right-click the icon) has what you may want to change, each used from the next start of TopSolid:
+
+- **Size of text and icons**: follow the desktop, or a fixed percentage (as `scale`).
+- **Font smoothing**: greyscale (Wine's default), subpixel (ClearType) or off.
+- **Decimal separator** and **measurement system**: follow the desktop's *Formats*, or point/comma and
+  metric/US. A choice made here replaces what was set with `regedit`.
+- **Graphics**: always draw on the NVIDIA GPU (laptops with NVIDIA and Intel/AMD graphics), and on Intel
+  graphics OpenGL through Intel's Vulkan driver (zink), as `TOPSOLID_GPU` and `TOPSOLID_GL`, which come first.
+- **TopSo'Linux updates** at start on or off (as `update-check`).
+- Buttons for Wine's own settings (`winecfg`) and the registry editor.
+
+The choices are files in `~/.local/share/topsolinux` (`scale`, `font-smoothing`, `decimal`, `measure`, `gpu`,
+`gl`, `update-check`); delete one for the default.
+
 Numbers and units follow the *Formats* of your desktop (Settings → Region & Language), not its language:
 with Dutch formats on an English desktop, TopSolid stays English but uses a decimal comma, and with a metric
-region new documents use millimetres. To set them yourself, start `regedit` and change `sDecimal`,
+region new documents use millimetres. To set them yourself, use *Settings*, or start `regedit` and change `sDecimal`,
 `sThousand`, `sList` and `iMeasure` (0 metric, 1 US) in `HKEY_CURRENT_USER\Control Panel\International`;
 values changed there are kept.
 

@@ -94,9 +94,20 @@ default_gpu()  # DESKTOPFILE
     sed -i '/^PrefersNonDefaultGPU=true$/d; /^X-KDE-RunOnDiscreteGpu=true$/d' "$1"
 }
 
+# "Wine settings" (winecfg) became "Settings" (1.6.54), which opens winecfg too
+settings_action()  # DESKTOPFILE
+{
+    local name="Settings (scaling, fonts, graphics, Wine)"
+    grep -qs '^\[Desktop Action winecfg\]$' "$1" || return 0
+    sed -i "/^Actions=/s/\([=;]\)winecfg;/\1settings;/
+        /^\[Desktop Action winecfg\]\$/,/^\[/{ s/^\[Desktop Action winecfg\]\$/[Desktop Action settings]/
+            s/^Name=.*/Name=$name/; s/^\(Exec=.*\) winecfg\$/\1 settings/; }" "$1"
+    case "$ADDED_ACTIONS" in *"$name"*) ;; *) ADDED_ACTIONS="${ADDED_ACTIONS:+$ADDED_ACTIONS, }$name" ;; esac
+}
+
 # what app menu entries made by older versions don't have: "Check for TopSo'Linux updates" (1.6.15),
-# "SpaceMouse settings" (1.6.21), "Report a problem" (1.6.30), the GPU default (1.6.36) and
-# "MCP server for AI assistants" (1.6.49)
+# "SpaceMouse settings" (1.6.21), "Report a problem" (1.6.30), the GPU default (1.6.36),
+# "MCP server for AI assistants" (1.6.49) and "Settings" (1.6.54)
 add_update_action()  # DESKTOPFILE COMMAND
 {
     default_gpu "$1"
@@ -104,6 +115,8 @@ add_update_action()  # DESKTOPFILE COMMAND
     add_action "$1" "$2" spacemouse "SpaceMouse settings" spacemouse
     add_action "$1" "$2" report "Report a problem" report
     add_action "$1" "$2" mcp "MCP server for AI assistants" mcp-install
+    settings_action "$1"
+    add_action "$1" "$2" settings "Settings (scaling, fonts, graphics, Wine)" settings
 }
 
 # the app menu entries that start APPIMAGE

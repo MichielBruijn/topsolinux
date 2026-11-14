@@ -656,7 +656,7 @@ Icon=topsolid
 Categories=Graphics;Engineering;
 Terminal=false
 StartupWMClass=topsolid.exe
-Actions=update;license;spacemouse;winecfg;stop;topsolinux;report;mcp;
+Actions=update;license;spacemouse;settings;stop;topsolinux;report;mcp;
 
 [Desktop Action update]
 Name=TopSolid'Update
@@ -670,9 +670,9 @@ Exec=AppRun license-tool
 Name=SpaceMouse settings
 Exec=AppRun spacemouse
 
-[Desktop Action winecfg]
-Name=Wine settings (screen scaling, ...)
-Exec=AppRun winecfg
+[Desktop Action settings]
+Name=Settings (scaling, fonts, graphics, Wine)
+Exec=AppRun settings
 
 [Desktop Action stop]
 Name=Stop background services
@@ -702,7 +702,7 @@ appdir_runtime()
     cp -a "$HERE/usr/lib/wine" "$HERE/usr/lib/ntlm_auth" "$dir/usr/lib/"
     rm -rf "$dir/usr/share/topsolinux"
     cp "$TOOLS/unstick.exe" "$TOOLS/guiprobe.exe" "$TOOLS/glinfo.exe" "$TOOLS/desktop-dpi" "$TOOLS/appimage-name.sh" \
-        "$TOOLS/prefix-settings.sh" "$TOOLS/ntsync.sh" "$TOOLS/userconfig.py" "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/spacemouse.py" \
+        "$TOOLS/prefix-settings.sh" "$TOOLS/ntsync.sh" "$TOOLS/userconfig.py" "$TOOLS/splash.py" "$TOOLS/progress.py" "$TOOLS/spacemouse.py" "$TOOLS/settings.py" \
         "$TOOLS/report-text.py" "$TOOLS/topsolinux-release.py" "$dir/usr/lib/topsolinux/"
     [ -d "$TOOLS/clrstack" ] && cp -a "$TOOLS/clrstack" "$dir/usr/lib/topsolinux/"
     mkdir -p "$dir/usr/share/doc/topsolinux" && echo "$TSL_VERSION" > "$dir/usr/share/doc/topsolinux/VERSION"
@@ -1123,7 +1123,7 @@ progress_stop
 [ -n "$APPIMAGE_OUT" ] || APPIMAGE_OUT="$(cat "$DATA/appimage.path" 2>/dev/null)"
 
 if [ -n "$INTEGRATED" ]; then
-    where="TopSolid $VERSION is in your app menu. Right-click its icon for TopSolid'Update, the license tool, Wine settings and stopping the background services."
+    where="TopSolid $VERSION is in your app menu. Right-click its icon for TopSolid'Update, the license tool, settings and stopping the background services."
 else
     where="Start TopSolid with <tt>${APPIMAGE_OUT/#$HOME/\~}</tt>."
 fi
