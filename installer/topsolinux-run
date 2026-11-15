@@ -168,6 +168,8 @@ find_version()
     [ -n "$VERSION" ] || { msg "TopSolid is not installed in $WINEPREFIX"; exit 1; }
     TOPSOLID="C:\\Program Files\\TOPSOLID\\TopSolid $VERSION\\bin"
     PDM_SERVICE="TopSolid'Local Pdm Server $VERSION"
+    PDM_CONF="$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid'Local Pdm Server Service/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
+    CLIENT_CONF="$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
     USERCONFIG="$WINEPREFIX/drive_c/users/${USER:-$(id -un)}/AppData/Roaming/TOPSOLID/TopSolid/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
 }
 
@@ -219,13 +221,65 @@ pdm_state()
     "$WINE" sc query "$PDM_SERVICE" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *\([A-Z_]*\).*/\1/p'
 }
 
-# the port of the local PDM server, from its configuration (18080 by default)
-pdm_listening()
+# the local PDM server's port: TopSolid's default is 18080 + the minor version's last digit (7.20: 18080)
+pdm_default_port() { local m="${VERSION#*.}"; echo $((18080 + 10#$m % 10)); }
+pdm_port()
 {
-    local conf port
-    conf="$WINEPREFIX/drive_c/ProgramData/TOPSOLID/TopSolid'Local Pdm Server Service/$VERSION/TopSolid/Kernel/SX/Config.ConfigData.xml"
-    port="$(sed -n 's/.*name="ServerPortNumber"[^>]*>\([0-9]*\)<.*/\1/p' "$conf" 2>/dev/null | head -1)"
-    (exec 3<>"/dev/tcp/127.0.0.1/${port:-18080}") 2>/dev/null
+    local port
+    port="$(sed -n 's/.*name="ServerPortNumber"[^>]*>\([0-9]*\)<.*/\1/p' "$PDM_CONF" 2>/dev/null | head -1)"
+    echo "${port:-$(pdm_default_port)}"
+}
+
+# our wineserver runs in /tmp/.wine-UID/server-DEV-INODE of the prefix
+own_server_dir() { printf '/tmp/.wine-%s/server-%x-%x' "$(id -u)" $(stat -c '%d %i' "$WINEPREFIX"); }
+
+# who listens on TCP PORT: nothing, "own" (this prefix's wineserver) or a name for someone else.
+# Without ss: "unknown" when something accepts connections.
+port_listener()  # PORT
+{
+    local line pid app own="" other=""
+    if ! command -v ss >/dev/null; then
+        (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && echo unknown
+        return 0
+    fi
+    while read -r line; do
+        pid="$(sed -n 's/.*pid=\([0-9]*\).*/\1/p' <<<"$line" | head -1)"
+        if [ -n "$pid" ] && [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$(own_server_dir)" ]; then
+            own=1
+            continue
+        fi
+        # another Wine: the AppImage it came from says more than "wineserver"
+        app="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^APPIMAGE=//p' | head -1)"
+        other="${app##*/}"
+        [ -n "$other" ] || other="$(sed -n 's/.*users:(("\([^"]*\)".*/\1/p' <<<"$line")"
+        [ -n "$other" ] || other="another program"
+    done < <(ss -Hltnp "sport = :$1" 2>/dev/null)
+    if [ -n "$other" ]; then echo "$other"; elif [ -n "$own" ]; then echo own; fi
+}
+
+pdm_listening() { case "$(port_listener "$(pdm_port)")" in own|unknown) return 0 ;; esac; return 1; }
+
+# Another program (another Wine, a web server) on the local PDM's port keeps the PDM from starting:
+# the PDM server and TopSolid move to a free port, and keep it
+move_pdm_port()
+{
+    local port new who ix
+    [ -f "$PDM_CONF" ] && command -v ss >/dev/null || return 0
+    port="$(pdm_port)"
+    who="$(port_listener "$port")"
+    case "$who" in ""|own) return 0 ;; esac
+    ix="$(sed -n 's/.*name="Item\.\([0-9]*\)\.ServerMode"[^>]*>LocalPdmServer<.*/\1/p' "$CLIENT_CONF" 2>/dev/null | head -1)"
+    if [ -z "$ix" ]; then
+        msg "port $port of the local PDM is used by $who, and TopSolid's connection to it is not in $CLIENT_CONF"
+        return 1
+    fi
+    new=$(($(pdm_default_port) + 100))
+    while [ -n "$(port_listener "$new")" ] || [ "$new" = "$port" ]; do new=$((new + 1)); done
+    python3 "$TOOLS/userconfig.py" "$PDM_CONF" TopSolid/Pdm/Kernel/PdmServerDescriptor ServerPortNumber Int "$new" 2>>"$LOG" &&
+        python3 "$TOOLS/userconfig.py" "$CLIENT_CONF" TopSolid/Pdm/UI/Connections/PdmServerConnectionDescriptor \
+            "Item.$ix.ServerPort" Int "$new" 2>>"$LOG" || { msg "moving the local PDM to port $new failed"; return 1; }
+    msg "port $port of the local PDM is used by $who: the local PDM now uses port $new"
+    splash "# Port $port is in use by $who: the local PDM moves to $new"
 }
 
 # TopSolid gives up on the local PDM after a while, but its very first start on a new machine can take minutes
@@ -247,9 +301,14 @@ wait_for_pdm()
         state="$(pdm_state)"
         [ "$state" = RUNNING ] && break
         if [ "$state" = STOPPED ] && [ $retried = 0 ] && [ $((SECONDS - start)) -gt 30 ]; then
+            # its port was taken after the start's check
+            move_pdm_port
             msg "local PDM stopped, starting it again"
             "$WINE" net start "$PDM_SERVICE" >/dev/null 2>&1 &
             retried=1
+        elif [ "$state" = STOPPED ] && [ $retried = 1 ] && [ $((SECONDS - start)) -gt 90 ]; then
+            # it doesn't start, not even again: TopSolid can't work without it, so no use waiting 15 minutes
+            break
         fi
         sleep 2
     done
@@ -259,6 +318,12 @@ wait_for_pdm()
     msg "local PDM: ${state:-unknown} after $((SECONDS - start))s"
     rm -f "$WINEPREFIX/.pdm-wait"
     [ -n "$notify" ] && wait "$notify" 2>/dev/null
+    if [ "$state" != RUNNING ]; then
+        local who
+        who="$(port_listener "$(pdm_port)")"
+        case "$who" in ""|own|unknown) who="" ;; *) who=" Its port $(pdm_port) is in use by <b>$who</b>." ;; esac
+        tell error "The local PDM did not start.$who TopSolid starts without it; see <tt>${LOG/#$HOME/\~}</tt>." &
+    fi
 }
 
 # a crashing program leaves a minidump in its temp folder instead of only a backtrace; winedbg writes
@@ -1059,6 +1124,8 @@ cd "$WINEPREFIX/drive_c" 2>/dev/null
 remove_auto_drives
 find_version
 [ "${1:-}" = mcp-install ] && { mcp_install "${2:-}"; exit; }
+# before the first Wine program: that starts the services, the local PDM among them
+move_pdm_port
 # settings that newer versions of the installer make, for a prefix made by an older one
 if [ -f "$TOOLS/prefix-settings.sh" ]; then
     . "$TOOLS/prefix-settings.sh"
