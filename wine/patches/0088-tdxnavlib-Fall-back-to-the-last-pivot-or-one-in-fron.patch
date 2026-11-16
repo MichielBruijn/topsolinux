@@ -1,0 +1,96 @@
+From 439658c189bab96008658bff62f2b09c0287bece Mon Sep 17 00:00:00 2001
+From: topsolinux <topsolinux@invalid>
+Date: Mon, 16 Nov 2026 12:31:52 +0100
+Subject: [PATCH] tdxnavlib: Fall back to the last pivot, or one in front of
+ the camera, when the application has none.
+
+Without a pivot the 3D mouse only pans. The application sometimes reports
+none for a moment, after switching documents.
+---
+ dlls/tdxnavlib/main.c | 49 ++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/tdxnavlib/main.c b/dlls/tdxnavlib/main.c
+index 9fcd07b9ebc..ac897ebd5d6 100644
+--- a/dlls/tdxnavlib/main.c
++++ b/dlls/tdxnavlib/main.c
+@@ -111,6 +111,7 @@ struct navlib
+     BOOL moving;
+     BOOL navigating;
+     BOOL have_pivot;
++    BOOL pivot_known;
+     double pivot[3];
+     BOOL app_timing;
+     double frame_time;
+@@ -371,6 +372,51 @@ static BOOL get_pivot( struct navlib *nl, double pivot[3] )
+     return FALSE;
+ }
+ 
++/* a point in front of the camera, at the focus distance or the height of the parallel view */
++static BOOL get_view_pivot( struct navlib *nl, double pivot[3] )
++{
++    value_t value, view;
++    struct frame cam;
++    double dist = 0.0;
++    int i;
++
++    if (!get_value( nl, "view.affine", &view ) || view.type != matrix_type) return FALSE;
++    if (get_value( nl, "view.focusDistance", &value ) && value.type == double_type) dist = value.d;
++    if (!(dist > 1e-9) && get_value( nl, "view.extents", &value ) && value.type == box_type)
++        dist = value.box.max.y - value.box.min.y;
++    if (!(dist > 1e-9)) return FALSE;
++    matrix_to_frame( view.m, translation_in_last_column( nl, view.m ), &cam );
++    /* the camera looks along -z */
++    for (i = 0; i < 3; i++) pivot[i] = cam.pos[i] - cam.r[i][2] * dist;
++    return TRUE;
++}
++
++/* Without a pivot the cap only pans. The application sometimes has none for a moment (seen after
++ * switching documents), so fall back to the last one, or to a point in front of the camera. */
++static BOOL find_pivot( struct navlib *nl )
++{
++    double pivot[3];
++
++    if (get_pivot( nl, pivot ))
++    {
++        memcpy( nl->pivot, pivot, sizeof(pivot) );
++        nl->pivot_known = TRUE;
++        return TRUE;
++    }
++    if (nl->pivot_known)
++    {
++        WARN( "no pivot from the application, keeping the last one\n" );
++        return TRUE;
++    }
++    if (get_view_pivot( nl, nl->pivot ))
++    {
++        WARN( "no pivot from the application, using a point in front of the camera\n" );
++        return TRUE;
++    }
++    WARN( "no pivot, the 3D mouse can only pan\n" );
++    return FALSE;
++}
++
+ static void navigate( struct navlib *nl, const int in[6], double dt )
+ {
+     double t[3], w[3], pivot[3], rel[3], d[3], rot[3][3], world_rot[3][3], rt[3][3], new_r[3][3];
+@@ -478,7 +524,7 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+         if (!nl->moving && !idle)
+         {
+             load_settings();
+-            nl->have_pivot = get_pivot( nl, nl->pivot );
++            nl->have_pivot = find_pivot( nl );
+             nl->app_timing = get_value( nl, "frame.timingSource", &frame ) && frame.type == long_type && frame.l == 1;
+             nl->frame_time = -1.0;
+             TRACE( "motion start, application timing %d\n", nl->app_timing );
+@@ -501,6 +547,7 @@ static LRESULT CALLBACK navlib_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+         return 0;
+     }
+     if (nl->navigating) return 0;
++    if (!nl->have_pivot && get_pivot( nl, nl->pivot )) nl->have_pivot = nl->pivot_known = TRUE;
+     if (!idle && nl->app_timing && get_value( nl, "frame.time", &frame ) && frame.type == double_type)
+     {
+         if (frame.d == nl->frame_time) return 0;
+-- 
+2.53.0
+
